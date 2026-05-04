@@ -244,6 +244,7 @@ const DATE_KEY         = 'join_count_date';
 const PIN_KEY          = 'join_admin_pin';
 const DEFAULT_PIN      = '1234';
 const CATEGORIES       = ['FOOD','COFFEE','JUICES','ΑΝΑΛΩΣΙΜΑ','ΤΣΑΪ','ΣΥΣΚΕΥΑΣΙΕΣ'];
+const CAT_LABELS       = {'FOOD':'🥗 FOOD','COFFEE':'☕ COFFEE','JUICES':'🥤 JUICES','ΑΝΑΛΩΣΙΜΑ':'🧻 ΑΝΑΛΩΣΙΜΑ','ΤΣΑΪ':'🍵 ΤΣΑΪ','ΣΥΣΚΕΥΑΣΙΕΣ':'📦 ΣΥΣΚΕΥΑΣΙΕΣ'};
 const STORE_NAMES      = {1:'Cosmos', 2:'Πατρών', 3:'Λευκός', 4:'Ποσειδώνιο', 5:'OneSalica'};
 // Default store codes (used until an admin sets custom ones in Supabase)
 const DEFAULT_STORE_CODES = {1:'1111', 2:'2222', 3:'3333', 4:'4444', 5:'5555'};
@@ -356,6 +357,26 @@ function isKilo(item) {
   return item.unit.trim().toUpperCase() === 'ΚΙΛΟ';
 }
 
+/** ΝΕΡΑ AΥΡΑ 500ML — sold in packs of 24; slot0 = # of full packs, slot1 = loose ΤΜΧ */
+const ITEM_ROW_AURA_WATER_500 = 86;
+const AURA_WATER_PACK_UNIT = 24;
+
+function isAuraWaterPackRow(itemRow) {
+  return itemRow === ITEM_ROW_AURA_WATER_500;
+}
+
+function auraWaterPackTotal(slots) {
+  const p = slots[0];
+  const l = slots[1];
+  const packs = p !== undefined ? Math.max(0, Math.floor(Number(p))) : 0;
+  const loose = l !== undefined ? Math.max(0, Math.floor(Number(l))) : 0;
+  return packs * AURA_WATER_PACK_UNIT + loose;
+}
+
+function auraWaterPackHasAnyInput(slots) {
+  return slots && (slots[0] !== undefined || slots[1] !== undefined);
+}
+
 // ==============================
 // SUPABASE
 // ==============================
@@ -395,9 +416,31 @@ async function loadData() {
       slotValues[itemRow][slot] = parseFloat(r.quantity);
     });
 
+    // Legacy Aura water: one row stored total ΤΜΧ in slot 0 only → split to 0 packs + loose (same total)
+    const aw = ITEM_ROW_AURA_WATER_500;
+    const awSlots = slotValues[aw];
+    if (awSlots && awSlots[1] === undefined && awSlots[0] !== undefined) {
+      const loose = Math.max(0, Math.floor(parseFloat(awSlots[0])));
+      if (loose === 0) {
+        delete slotValues[aw];
+        await deleteCount(aw);
+      } else {
+        slotValues[aw][0] = 0;
+        slotValues[aw][1] = loose;
+        await upsertCount(aw, 0);
+        await upsertCount(slotRow(aw, 1), loose);
+      }
+    }
+
     counts = {};
     for (const [rowStr, slots] of Object.entries(slotValues)) {
       const itemRow = parseInt(rowStr);
+      if (isAuraWaterPackRow(itemRow)) {
+        if (!auraWaterPackHasAnyInput(slots)) continue;
+        const total = auraWaterPackTotal(slots);
+        if (total > 0) counts[itemRow] = total;
+        continue;
+      }
       const { num_inputs } = getItemCfg(itemRow);
       const total = slots.slice(0, num_inputs).reduce((s, v) => s + (v || 0), 0);
       if (total > 0) counts[itemRow] = total;
@@ -454,9 +497,17 @@ function subscribeToChanges() {
       // Recompute total
       const { num_inputs, tare_count } = getItemCfg(itemRow);
       const allSlots = slotValues[itemRow] || [];
-      const total = allSlots.slice(0, num_inputs).reduce((s, v) => s + (v || 0), 0);
-      const hasAny = allSlots.slice(0, num_inputs).some(v => v !== undefined);
-      if (hasAny) counts[itemRow] = total; else delete counts[itemRow];
+      let total, hasAny;
+      if (isAuraWaterPackRow(itemRow)) {
+        hasAny = auraWaterPackHasAnyInput(allSlots);
+        total = auraWaterPackTotal(allSlots);
+        if (!hasAny || total <= 0) delete counts[itemRow];
+        else counts[itemRow] = total;
+      } else {
+        total = allSlots.slice(0, num_inputs).reduce((s, v) => s + (v || 0), 0);
+        hasAny = allSlots.slice(0, num_inputs).some(v => v !== undefined);
+        if (hasAny) counts[itemRow] = total; else delete counts[itemRow];
+      }
 
       // Update input if not focused
       const input = document.querySelector(`[data-row="${itemRow}"][data-slot="${slot}"]`);
@@ -472,13 +523,23 @@ function subscribeToChanges() {
               ? `<span class="net-value">${qty.toFixed(3)}</span><span class="net-unit">kg</span>`
               : `<span class="net-value placeholder">—</span>`;
           }
+        } else if (isAuraWaterPackRow(itemRow)) {
+          input.value = qty !== null ? String(Math.max(0, Math.floor(qty))) : '';
         } else {
           input.value = qty !== null ? qty.toFixed(3) : '';
         }
+        if (!isAuraWaterPackRow(itemRow)) {
+          const totalEl = document.getElementById(`total-${itemRow}`);
+          if (totalEl) totalEl.textContent = hasAny ? total.toFixed(3) : '—';
+          const rowEl = document.getElementById(`item-row-${itemRow}`);
+          if (rowEl) rowEl.classList.toggle('filled', hasAny);
+        }
+      }
+      if (isAuraWaterPackRow(itemRow)) {
         const totalEl = document.getElementById(`total-${itemRow}`);
-        if (totalEl) totalEl.textContent = hasAny ? total.toFixed(3) : '—';
+        if (totalEl) totalEl.textContent = hasAny && total > 0 ? String(total) : '—';
         const rowEl = document.getElementById(`item-row-${itemRow}`);
-        if (rowEl) rowEl.classList.toggle('filled', hasAny);
+        if (rowEl) rowEl.classList.toggle('filled', hasAny && total > 0);
       }
       refreshTabBadges();
     })
@@ -578,7 +639,7 @@ function renderStoreScreen() {
         <div class="store-grid">
           ${[1,2,3,4,5].map(n => `
             <button class="store-btn" onclick="selectStore(${n})">
-              <span class="store-num">${n}</span>
+              <span class="store-emoji">🏪</span>
               <span class="store-label">${STORE_NAMES[n]}</span>
             </button>`).join('')}
         </div>
@@ -718,7 +779,7 @@ function buildTabs() {
     const items = ITEMS.filter(i => i.category === cat);
     const n = items.filter(i => counts[i.row] !== undefined).length;
     return `<button class="tab-btn ${cat === activeCategory ? 'active' : ''}"
-      onclick="switchTab('${cat}')">${cat}
+      onclick="switchTab('${cat}')">${CAT_LABELS[cat]}
       <span class="tab-badge ${n > 0 ? 'has-counts' : ''}">${n}/${items.length}</span>
     </button>`;
   }).join('');
@@ -736,7 +797,7 @@ function buildItemsList() {
   let lastCat = null;
   for (const item of list) {
     if (searchQuery && item.category !== lastCat) {
-      html += `<div class="category-divider">${item.category}</div>`;
+      html += `<div class="category-divider">${CAT_LABELS[item.category] || item.category}</div>`;
       lastCat = item.category;
     }
     html += buildItemRow(item);
@@ -751,6 +812,52 @@ function buildItemRow(item) {
   const filled = total !== undefined && total > 0;
   const step = '0.001';
   const mode = 'decimal';
+
+  if (!isKilo(item) && isAuraWaterPackRow(item.row)) {
+    const slots = slotValues[item.row] || [];
+    const packsVal = slots[0] !== undefined ? String(Math.max(0, Math.floor(slots[0]))) : '';
+    const looseVal = slots[1] !== undefined ? String(Math.max(0, Math.floor(slots[1]))) : '';
+    const tot = auraWaterPackTotal(slots);
+    const filled = tot > 0;
+    return `
+      <div class="item-row multi-slot aura-pack-row${filled ? ' filled' : ''}" id="item-row-${item.row}">
+        <div class="item-header-row">
+          <div class="item-info">
+            <span class="item-name">${h(item.name)}</span>
+            ${item.code ? `<span class="item-code">${h(item.code)}</span>` : ''}
+          </div>
+        </div>
+        <div class="item-slots">
+          <div class="item-slot">
+            <span class="slot-label">Κιβώτια ×${AURA_WATER_PACK_UNIT}</span>
+            <div class="item-input-wrap slot-input-wrap">
+              <div class="input-group">
+                <input type="number" class="qty-input" data-row="${item.row}" data-slot="0"
+                  placeholder="0" value="${packsVal}" min="0" step="1" inputmode="numeric"
+                  oninput="onSlotInput(${item.row}, 0, this.value)">
+                <span class="unit-label">κιβ.</span>
+              </div>
+            </div>
+          </div>
+          <div class="item-slot">
+            <span class="slot-label">Εκτός κιβωτίου</span>
+            <div class="item-input-wrap slot-input-wrap">
+              <div class="input-group">
+                <input type="number" class="qty-input" data-row="${item.row}" data-slot="1"
+                  placeholder="0" value="${looseVal}" min="0" step="1" inputmode="numeric"
+                  oninput="onSlotInput(${item.row}, 1, this.value)">
+                <span class="unit-label">ΤΜΧ</span>
+              </div>
+            </div>
+          </div>
+          <div class="item-total-bar">
+            <span>📊 Σύνολο:</span>
+            <span class="total-value" id="total-${item.row}">${tot > 0 ? String(tot) : '—'}</span>
+            <span>ΤΜΧ</span>
+          </div>
+        </div>
+      </div>`;
+  }
 
   if (!isKilo(item)) {
     const net = counts[item.row];
@@ -811,7 +918,7 @@ function buildItemRow(item) {
 
   const totalBar = num_inputs > 1 ? `
     <div class="item-total-bar">
-      <span>Σύνολο:</span>
+      <span>📊 Σύνολο:</span>
       <span class="total-value" id="total-${item.row}">${total !== undefined ? total.toFixed(3) : '—'}</span>
       <span>kg</span>
     </div>` : '';
@@ -879,8 +986,6 @@ function refreshTabBadges() {
   if (tw && !searchQuery) tw.innerHTML = buildTabs();
   const ti = document.getElementById('total-info');
   if (ti) ti.textContent = totalCountedText();
-  const activeTab = document.querySelector('.tab-btn.active');
-  if (activeTab) activeTab.scrollIntoView({behavior:'instant', block:'nearest', inline:'center'});
 }
 
 // ==============================
@@ -889,6 +994,48 @@ function refreshTabBadges() {
 function onSlotInput(itemRow, slot, raw) {
   const item = ITEM_MAP[itemRow];
   if (!item) return;
+
+  if (isAuraWaterPackRow(itemRow)) {
+    let v = null;
+    if (raw !== '' && raw !== null) {
+      const n = parseInt(raw, 10);
+      if (!isNaN(n) && n >= 0) v = n;
+    }
+    if (!slotValues[itemRow]) slotValues[itemRow] = [];
+    if (v !== null) slotValues[itemRow][slot] = v;
+    else delete slotValues[itemRow][slot];
+
+    const allSlots = slotValues[itemRow] || [];
+    const hasEntry = auraWaterPackHasAnyInput(allSlots);
+    const total = auraWaterPackTotal(allSlots);
+    if (!hasEntry || total <= 0) delete counts[itemRow];
+    else counts[itemRow] = total;
+
+    const totalEl = document.getElementById(`total-${itemRow}`);
+    if (totalEl) totalEl.textContent = hasEntry && total > 0 ? String(total) : '—';
+    const rowEl = document.getElementById(`item-row-${itemRow}`);
+    if (rowEl) rowEl.classList.toggle('filled', total > 0 && hasEntry);
+
+    refreshTabBadges();
+
+    clearTimeout(saveTimers[`aura-${itemRow}`]);
+    saveTimers[`aura-${itemRow}`] = setTimeout(() => {
+      const sl = slotValues[itemRow] || [];
+      const has = auraWaterPackHasAnyInput(sl);
+      const tot = auraWaterPackTotal(sl);
+      if (!has || tot <= 0) {
+        deleteCount(itemRow);
+        deleteCount(slotRow(itemRow, 1));
+      } else {
+        if (sl[0] !== undefined) upsertCount(itemRow, Math.floor(sl[0]));
+        else deleteCount(itemRow);
+        if (sl[1] !== undefined) upsertCount(slotRow(itemRow, 1), Math.floor(sl[1]));
+        else deleteCount(slotRow(itemRow, 1));
+      }
+    }, 600);
+    return;
+  }
+
   const cw = containerWeights[itemRow];
   const { num_inputs, tare_count } = getItemCfg(itemRow);
   const isTare = isKilo(item) && slot < tare_count && !!cw;
@@ -959,16 +1106,44 @@ function onItemInput(itemRow, raw) { onSlotInput(itemRow, 0, raw); }
 
 function onItemCfgChange(itemRow, type, newVal) {
   const v = parseInt(newVal);
-  const cfg = itemConfig[itemRow] || { num_inputs: 1, tare_count: containerWeights[itemRow] ? 1 : 0 };
+  const existing = itemConfig[itemRow] || { num_inputs: 1, tare_count: containerWeights[itemRow] ? 1 : 0 };
+  const cfg = { ...existing };
+  const cw = containerWeights[itemRow] || 0;
+
   if (type === 'num_inputs') {
     cfg.num_inputs = v;
     cfg.tare_count = Math.min(cfg.tare_count, v);
   } else {
-    cfg.tare_count = v;
+    const oldTare = cfg.tare_count;
+    const newTare = v;
+    // Reinterpret values for slots whose tare status changed
+    if (cw > 0 && slotValues[itemRow]) {
+      const lo = Math.min(oldTare, newTare);
+      const hi = Math.max(oldTare, newTare);
+      for (let slot = lo; slot < hi; slot++) {
+        const stored = slotValues[itemRow][slot];
+        if (stored === undefined) continue;
+        // plain→tare: input showed net, now treated as gross → new net = stored − cw
+        // tare→plain: input showed gross (stored+cw), now that becomes the plain value → new net = stored + cw
+        const newNet = newTare > oldTare
+          ? Math.max(0, stored - cw)
+          : stored + cw;
+        slotValues[itemRow][slot] = newNet;
+        const sr = slotRow(itemRow, slot);
+        clearTimeout(saveTimers[`${itemRow}-${slot}`]);
+        saveTimers[`${itemRow}-${slot}`] = setTimeout(() => upsertCount(sr, newNet), 800);
+      }
+    }
+    cfg.tare_count = newTare;
+    // Recompute total
+    const allSlots = slotValues[itemRow] || [];
+    const total = allSlots.slice(0, cfg.num_inputs).reduce((s, val) => s + (val || 0), 0);
+    const hasAny = allSlots.slice(0, cfg.num_inputs).some(val => val !== undefined);
+    if (hasAny) counts[itemRow] = total; else delete counts[itemRow];
   }
+
   itemConfig[itemRow] = cfg;
 
-  // Re-render just this item row in place
   const rowEl = document.getElementById(`item-row-${itemRow}`);
   if (rowEl) {
     const tmp = document.createElement('div');
@@ -1097,7 +1272,7 @@ function buildCodesSection() {
 
   return `
     <div class="admin-section">
-      <h3 class="admin-cat-title">Κωδικοί Πρόσβασης</h3>
+      <h3 class="admin-cat-title">🔐 Κωδικοί Πρόσβασης</h3>
       <p style="font-size:13px;color:var(--text-secondary);margin:0 0 12px">Εισάγετε νέο 4-ψήφιο κωδικό για να τον αλλάξετε. Αφήστε κενό για να διατηρήσετε τον τρέχοντα.</p>
       ${storeRows}
       ${masterRow}
@@ -1119,45 +1294,20 @@ function renderAdminScreen() {
     if (!items.length) return '';
     return `
       <div class="admin-section">
-        <h3 class="admin-cat-title">${cat}</h3>
+        <h3 class="admin-cat-title">${CAT_LABELS[cat]}</h3>
         ${items.map(item => {
-          const cfg = getItemCfg(item.row);
-          const numInputs = cfg.num_inputs;
-          const tareCount = cfg.tare_count;
           const cwVal = containerWeights[item.row] !== undefined ? containerWeights[item.row] : '';
-
-          const numOptions = Array.from({length:10},(_,i)=>
-            `<option value="${i+1}"${numInputs===i+1?' selected':''}>${i+1}</option>`).join('');
-          const tareOptions = Array.from({length:numInputs+1},(_,i)=>
-            `<option value="${i}"${tareCount===i?' selected':''}>${i}</option>`).join('');
-
           return `
             <div class="admin-item-row">
               <div class="admin-item-info">
                 <span class="item-name">${h(item.name)}</span>
                 ${item.code ? `<span class="item-code">${h(item.code)}</span>` : ''}
               </div>
-              <div class="admin-controls">
-                <div class="admin-input-wrap">
-                  <input type="number" class="admin-weight-input"
-                    data-row="${item.row}" placeholder="—"
-                    value="${cwVal}" min="0" step="0.001" inputmode="decimal">
-                  <span class="unit-label">kg</span>
-                </div>
-                <div class="admin-select-wrap">
-                  <label>Θέσεις</label>
-                  <select class="admin-select" data-row="${item.row}" data-type="num_inputs"
-                    onchange="onAdminNumInputsChange(this)">
-                    ${numOptions}
-                  </select>
-                </div>
-                <div class="admin-select-wrap">
-                  <label>Αποβαρο</label>
-                  <select class="admin-select admin-tare-sel" data-row="${item.row}" data-type="tare_count"
-                    id="tare-sel-${item.row}">
-                    ${tareOptions}
-                  </select>
-                </div>
+              <div class="admin-input-wrap">
+                <input type="number" class="admin-weight-input"
+                  data-row="${item.row}" placeholder="—"
+                  value="${cwVal}" min="0" step="0.001" inputmode="decimal">
+                <span class="unit-label">kg</span>
               </div>
             </div>`;
         }).join('')}
@@ -1169,7 +1319,7 @@ function renderAdminScreen() {
       <header class="app-header">
         <div class="header-left">
           <button class="back-btn" onclick="renderCountingScreen()">← Πίσω</button>
-          <div class="header-title"><strong>Βάρη Δοχείων</strong></div>
+          <div class="header-title"><strong>⚖️ Βάρη Δοχείων</strong></div>
         </div>
         <div></div>
       </header>
@@ -1187,16 +1337,6 @@ function renderAdminScreen() {
         ${buildCodesSection()}
       </div>
     </div>`;
-}
-
-function onAdminNumInputsChange(sel) {
-  const row = sel.dataset.row;
-  const n = parseInt(sel.value);
-  const tareSel = document.getElementById(`tare-sel-${row}`);
-  if (!tareSel) return;
-  const currentTare = parseInt(tareSel.value);
-  tareSel.innerHTML = Array.from({length:n+1},(_,i)=>
-    `<option value="${i}"${Math.min(currentTare,n)===i?' selected':''}>${i}</option>`).join('');
 }
 
 async function saveContainerWeights() {
@@ -1224,21 +1364,6 @@ async function saveContainerWeights() {
     }
     upserts.forEach(u => { containerWeights[u.item_row] = u.weight_kg; });
     toDelete.forEach(row => { delete containerWeights[row]; });
-
-    // Save item_config
-    const cfgUpserts = [];
-    document.querySelectorAll('.admin-select[data-type="num_inputs"]').forEach(sel => {
-      const row = parseInt(sel.dataset.row);
-      const numInputs = parseInt(sel.value);
-      const tareSel = document.getElementById(`tare-sel-${row}`);
-      const tareCount = tareSel ? parseInt(tareSel.value) : 0;
-      cfgUpserts.push({ store_id: storeId, item_row: row, num_inputs: numInputs, tare_count: tareCount, updated_at: new Date().toISOString() });
-      itemConfig[row] = { num_inputs: numInputs, tare_count: tareCount };
-    });
-    if (cfgUpserts.length) {
-      const { error: cfgErr } = await sb.from('item_config').upsert(cfgUpserts, { onConflict: 'store_id,item_row' });
-      if (cfgErr) console.error('item_config save error:', cfgErr);
-    }
 
     const msg = document.getElementById('admin-msg');
     if (msg) { msg.textContent = '✓ Αποθηκεύτηκε'; setTimeout(() => { if(msg) msg.textContent=''; }, 3000); }

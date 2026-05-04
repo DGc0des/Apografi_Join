@@ -105,12 +105,9 @@ input { font-family: inherit; font-size: inherit; }
   transform: translateY(-1px);
   box-shadow: var(--shadow-md);
 }
-.store-btn:hover .store-num, .store-btn:active .store-num { color: white; }
 .store-btn:hover .store-label, .store-btn:active .store-label { color: rgba(255,255,255,.9); }
-.store-num {
+.store-emoji {
   font-size: 28px;
-  font-weight: 800;
-  color: var(--primary);
   line-height: 1;
 }
 .store-label {
@@ -696,13 +693,14 @@ input { font-family: inherit; font-size: inherit; }
 .item-slot {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
   width: 100%;
   min-height: 44px;
 }
+.slot-label { margin-right: auto; }
 .slot-input-wrap {
-  flex: 1 1 auto;
-  min-width: 0;
+  flex-shrink: 0;
 }
 .slot-label {
   font-size: 11px;
