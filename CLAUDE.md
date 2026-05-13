@@ -84,6 +84,10 @@ echo -n "${code}join-salt" | shasum -a 256 | awk '{print $1}'
 - Uses `counts[item.row]` (total net) — no slot-level data in export
 - Filename: `JOIN_Απογραφή_{StoreName}_{YYYY-MM-DD}.xlsx`
 
+## Workflow
+- After every set of changes, update `next_Commit.md` in the project root with a summary of what was changed and why — this file is used as the basis for GitHub commit messages.
+- Keep entries concise: one section per logical change, bullet-point format.
+
 ## Things to avoid
 - Do NOT change the `CATEGORIES` array values — items filter by `i.category === cat`; use `CAT_LABELS` for display only
 - Do NOT change slot encoding offsets (10000) without migrating existing DB data
