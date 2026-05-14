@@ -1330,46 +1330,11 @@ function buildItemRow(item) {
     const isTare = !!slotCw;
     const netVal = slots[slot];  // stored as net
     const dispVal = isTare && netVal !== undefined ? (netVal + slotCw).toFixed(3) : (netVal !== undefined ? netVal.toFixed(3) : '');
-
-    if (hasSlotLabels) {
-      const labelText = SLOT_LABELS[item.row][slot] || `Θ${slot + 1}`;
-      const cwVal = slotCw !== undefined ? slotCw : '';
-      const netDisplay = `
-        <div class="net-display${!isTare ? ' hidden' : (netVal !== undefined ? '' : ' empty')}" id="net-${item.row}-${slot}">
-          ${isTare && netVal !== undefined ? `<span class="net-value">${netVal.toFixed(3)}</span><span class="net-unit">kg</span>` : `<span class="net-value placeholder">—</span>`}
-        </div>`;
-      return `
-        <div class="item-slot slot-labeled-tare">
-          <span class="slot-label">${labelText}</span>
-          <div class="labeled-tare-controls">
-            <div class="tare-input-row">
-              <span class="cfg-label">Αποβαρο</span>
-              <div class="input-group">
-                <input type="number" class="qty-input tare-inline"
-                  id="tare-inline-${item.row}-${slot}"
-                  placeholder="—" value="${cwVal}"
-                  min="0" step="0.001" inputmode="decimal"
-                  oninput="onSlotTareInput(${item.row}, ${slot}, this.value)">
-                <span class="unit-label">kg</span>
-              </div>
-            </div>
-            <div class="item-input-wrap slot-input-wrap">
-              <div class="input-group">
-                <input type="number" class="qty-input${isTare ? ' gross-input' : ''}"
-                  data-row="${item.row}" data-slot="${slot}"
-                  placeholder="${isTare ? 'Μεικτό' : '0'}"
-                  value="${dispVal}" min="0" step="${step}" inputmode="${mode}"
-                  oninput="onSlotInput(${item.row}, ${slot}, this.value)">
-                <span class="unit-label">kg</span>
-              </div>
-              ${netDisplay}
-            </div>
-          </div>
-        </div>`;
-    }
-
-    const labelText = num_inputs > 1 ? `Θ${slot + 1}` : '';
+    const labelText = hasSlotLabels
+      ? (SLOT_LABELS[item.row][slot] || `Θ${slot + 1}`)
+      : (num_inputs > 1 ? `Θ${slot + 1}` : '');
     const slotLabel = labelText ? `<span class="slot-label">${labelText}</span>` : '';
+
     const netDisplay = isTare ? `
       <div class="net-display ${netVal !== undefined ? '' : 'empty'}" id="net-${item.row}-${slot}">
         ${netVal !== undefined
@@ -1650,56 +1615,6 @@ function onItemCfgChange(itemRow, type, newVal) {
   saveTimers[`cfg-${itemRow}`] = setTimeout(() => saveItemCfg(itemRow), 800);
 }
 
-function onSlotTareInput(itemRow, slot, raw) {
-  const key = slotRow(itemRow, slot);
-  const val = parseFloat(raw);
-  const hasTare = raw !== '' && !isNaN(val) && val > 0;
-
-  if (hasTare) containerWeights[key] = val;
-  else delete containerWeights[key];
-
-  const netVal = (slotValues[itemRow] || [])[slot];
-
-  // Update the quantity input (placeholder, class, displayed value)
-  const qtyInput = document.querySelector(`[data-row="${itemRow}"][data-slot="${slot}"]`);
-  if (qtyInput && document.activeElement !== qtyInput) {
-    qtyInput.placeholder = hasTare ? 'Μεικτό' : '0';
-    qtyInput.classList.toggle('gross-input', hasTare);
-    if (netVal !== undefined) {
-      qtyInput.value = hasTare ? (netVal + val).toFixed(3) : netVal.toFixed(3);
-    } else {
-      qtyInput.value = '';
-    }
-  }
-
-  // Show/hide net display
-  const netEl = document.getElementById(`net-${itemRow}-${slot}`);
-  if (netEl) {
-    netEl.classList.toggle('hidden', !hasTare);
-    if (hasTare) {
-      netEl.classList.toggle('empty', netVal === undefined);
-      netEl.innerHTML = netVal !== undefined
-        ? `<span class="net-value">${netVal.toFixed(3)}</span><span class="net-unit">kg</span>`
-        : `<span class="net-value placeholder">—</span>`;
-    }
-  }
-
-  // Debounce save to Supabase
-  clearTimeout(saveTimers[`tare-${key}`]);
-  saveTimers[`tare-${key}`] = setTimeout(async () => {
-    try {
-      if (hasTare) {
-        await sb.from('container_weights').upsert(
-          { store_id: storeId, item_row: key, weight_kg: val },
-          { onConflict: 'store_id,item_row' }
-        );
-      } else {
-        await sb.from('container_weights').delete()
-          .eq('store_id', storeId).eq('item_row', key);
-      }
-    } catch(e) { console.error('Tare save error:', e); }
-  }, 800);
-}
 
 async function saveItemCfg(itemRow) {
   const cfg = itemConfig[itemRow];
