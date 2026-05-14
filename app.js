@@ -34,6 +34,7 @@ const ITEMS = [
   {row:30,code:null,name:"ΒΑΝΙΛΙΝΗ ΕΞΩΤΕΡΙΚΟΥ ΣΚΟΝΗ (ΜΕΝΕΞΟΠΟΥΛΟΣ)",unit_price:0,unit:"ΚΙΛΟ",category:"FOOD"},
   {row:31,code:null,name:"ΒΟΥΤΥΡΟ ΦΥΣΤΙΚΙΟΥ ΑΙΓΙΝΗΣ 212ΓΡ (ΜΕΝΕΞΟΠΟΥΛΟΣ)",unit_price:0,unit:"ΤΜΧ",category:"FOOD"},
   {row:32,code:"Φ-024-2",name:"ΒΡΩΜΗ 1ΚΙΛ (ΤΣΑΚΙΡΗΣ)",unit_price:0,unit:"ΤΜΧ",category:"FOOD"},
+  {row:19,code:null,name:"ΒΡΩΜΗ ΜΠΡΟΣΤΑ",unit_price:0,unit:"ΚΙΛΟ",category:"FOOD"},
   {row:33,code:"1915",name:"ΓΑΛΟΠΟΥΛΑ (ΑΡΜΟΝΙΑ ΓΕΥΣΗΣ)",unit_price:0,unit:"ΚΙΛΟ",category:"FOOD"},
   {row:34,code:"2818",name:"ΓΙΑΟΥΡΤΙ (ΜΕΒΓΑΛ)",unit_price:0,unit:"ΚΙΛΟ",category:"FOOD"},
   {row:35,code:"2308",name:"ΓΙΑΟΥΡΤΙ LACTOSE FREE (ΜΕΒΓΑΛ)",unit_price:0,unit:"ΤΜΧ",category:"FOOD"},
@@ -252,7 +253,9 @@ const STORE_NAMES      = {1:'Cosmos', 2:'Πατρών', 3:'Λευκός', 4:'Π�
 // Items with distinct per-slot sub-locations and independent tare weights.
 // Each entry fixes the slot count and labels; tare is determined by whether each slot has a cw.
 const SLOT_LABELS = {
-  60: ['Μπροστά', 'Πίσω', 'ΚΤΨ'],   // ΣΟΛΟΜΟΣ
+  60: ['Μπροστά', 'Πίσω', 'ΚΤΨ'],                                         // ΣΟΛΟΜΟΣ
+  45: ['Καρύδια smoothies', 'Καρύδια Φαγητό', 'Καρύδια πίσω'],            // ΚΑΡΥΔΙΑ
+  29: ['Αμύγδαλα smoothies', 'Αμύγδαλα Φαγητό', 'Αμύγδαλα πίσω'],       // ΑΜΥΓΔΑΛΟ ΩΜΟ
 };
 // Items with named group sections where some groups have configurable θέσεις.
 // configurable=true  → slot count = itemConfig.num_inputs, renders θέσεις selector
@@ -263,6 +266,24 @@ const SLOT_GROUPS = {
     { label: 'Πίσω',    configurable: false, reservedSlot: 9 },
   ],
 };
+// Multi-section cards: one visual card groups logically related items.
+// primary row = provides the card header name; sections listed in display order.
+const ITEM_GROUPS = {
+  32: {  // ΒΡΩΜΗ 1ΚΙΛ (ΤΣΑΚΙΡΗΣ)
+    sections: [
+      { row: 19, label: 'Μπροστά' },  // ΚΙΛΟ — configurable θέσεις + αποβαρο
+      { row: 32, label: 'ΤΜΧ' },      // piece count
+    ]
+  }
+};
+// Secondary rows rendered only via their group card, never as standalone items.
+const ITEM_GROUP_SECONDARY_ROWS = new Set([19]);
+// Maps every row in a group (including the primary itself) → primary row.
+const ITEM_GROUP_BY_ROW = {};
+Object.entries(ITEM_GROUPS).forEach(([primary, group]) => {
+  const p = Number(primary);
+  group.sections.forEach(s => { ITEM_GROUP_BY_ROW[s.row] = p; });
+});
 // Default store codes (used until an admin sets custom ones in Supabase)
 const DEFAULT_STORE_CODES = {1:'1111', 2:'2222', 3:'3333', 4:'4444', 5:'5555'};
 const DEFAULT_MASTER_CODE = '0000';
@@ -290,6 +311,7 @@ let skippedItems   = new Set(); // item rows marked as "Δεν μετριέτα�
 // SLOT ENCODING HELPERS
 // ==============================
 function slotRow(itemRow, slot) { return slot === 0 ? itemRow : itemRow + slot * 10000; }
+const SKIP_MARKER_BASE = 9000; // skip state stored as item_row + 9000 in inventory_counts
 function parseSlotRow(stored) {
   if (stored < 1000) return { itemRow: stored, slot: 0 };
   return { itemRow: stored % 10000, slot: Math.floor(stored / 10000) };
@@ -390,28 +412,37 @@ function formatDate(d) {
   return `${day}/${m}/${y}`;
 }
 
-function loadSkippedItems() {
-  const raw = localStorage.getItem(`join_skip_${storeId}_${countDate}`);
-  skippedItems = new Set(raw ? JSON.parse(raw).map(Number) : []);
-}
-
-function saveSkippedItems() {
-  localStorage.setItem(`join_skip_${storeId}_${countDate}`, JSON.stringify([...skippedItems]));
-}
-
-function toggleSkip(itemRow) {
-  if (skippedItems.has(itemRow)) skippedItems.delete(itemRow);
-  else skippedItems.add(itemRow);
-  saveSkippedItems();
+async function toggleSkip(itemRow) {
+  const isSkipped = !skippedItems.has(itemRow);
+  if (isSkipped) skippedItems.add(itemRow); else skippedItems.delete(itemRow);
   const rowEl = document.getElementById(`item-row-${itemRow}`);
-  if (rowEl) rowEl.classList.toggle('skipped', skippedItems.has(itemRow));
+  if (rowEl) rowEl.classList.toggle('skipped', isSkipped);
   const btn = document.getElementById(`skip-btn-${itemRow}`);
   if (btn) {
-    const isSkipped = skippedItems.has(itemRow);
     btn.classList.toggle('active', isSkipped);
     btn.textContent = isSkipped ? '✓ Δεν μετριέται' : 'Δεν μετριέται';
   }
   refreshTabBadges();
+  await upsertCount(itemRow + SKIP_MARKER_BASE, isSkipped ? 1 : 0);
+}
+
+async function toggleGroupSkip(primaryRow) {
+  const group = ITEM_GROUPS[primaryRow];
+  const isSkipped = !group.sections.some(s => skippedItems.has(s.row));
+  for (const s of group.sections) {
+    if (isSkipped) skippedItems.add(s.row); else skippedItems.delete(s.row);
+  }
+  const groupEl = document.getElementById(`item-group-${primaryRow}`);
+  if (groupEl) groupEl.classList.toggle('skipped', isSkipped);
+  const btn = document.getElementById(`skip-btn-group-${primaryRow}`);
+  if (btn) {
+    btn.classList.toggle('active', isSkipped);
+    btn.textContent = isSkipped ? '✓ Δεν μετριέται' : 'Δεν μετριέται';
+  }
+  refreshTabBadges();
+  for (const s of group.sections) {
+    await upsertCount(s.row + SKIP_MARKER_BASE, isSkipped ? 1 : 0);
+  }
 }
 
 function h(str) {
@@ -491,6 +522,15 @@ function isKilo(item) {
   return item.unit.trim().toUpperCase() === 'ΚΙΛΟ';
 }
 
+function isGroupFilled(primaryRow) {
+  return ITEM_GROUPS[primaryRow].sections.some(s => counts[s.row] !== undefined);
+}
+
+function getItemRowEl(itemRow) {
+  return document.getElementById(`item-row-${itemRow}`)
+      || document.getElementById(`item-group-${ITEM_GROUP_BY_ROW[itemRow]}`);
+}
+
 /** ΝΕΡΑ AΥΡΑ 500ML — sold in packs of 24; slot0 = # of full packs, slot1 = loose ΤΜΧ */
 const ITEM_ROW_AURA_WATER_500 = 86;
 const AURA_WATER_PACK_UNIT = 24;
@@ -543,8 +583,14 @@ async function loadData() {
     });
 
     slotValues = {};
+    skippedItems = new Set();
     (cRes.data || []).forEach(r => {
       if (r.quantity === null) return;
+      if (r.item_row > SKIP_MARKER_BASE) {
+        const realRow = r.item_row - SKIP_MARKER_BASE;
+        if (ITEM_MAP[realRow] && r.quantity > 0) skippedItems.add(realRow);
+        return;
+      }
       const { itemRow, slot } = parseSlotRow(r.item_row);
       if (!slotValues[itemRow]) slotValues[itemRow] = [];
       slotValues[itemRow][slot] = parseFloat(r.quantity);
@@ -618,6 +664,37 @@ function subscribeToChanges() {
       const rec = payload.new || {};
       const storedRow = rec.item_row;
       const qty = (rec.quantity !== null && rec.quantity !== undefined) ? parseFloat(rec.quantity) : null;
+
+      // Skip marker: sync "Δεν μετριέται" state from another device
+      if (storedRow > SKIP_MARKER_BASE) {
+        const realRow = storedRow - SKIP_MARKER_BASE;
+        const item = ITEM_MAP[realRow];
+        if (!item || rec.count_date !== countDate) return;
+        const isSkipped = qty !== null && qty > 0;
+        if (isSkipped) skippedItems.add(realRow); else skippedItems.delete(realRow);
+        const groupPrimary = ITEM_GROUP_BY_ROW[realRow];
+        if (groupPrimary !== undefined) {
+          const groupSkipped = ITEM_GROUPS[groupPrimary].sections.some(s => skippedItems.has(s.row));
+          const groupEl = document.getElementById(`item-group-${groupPrimary}`);
+          if (groupEl) groupEl.classList.toggle('skipped', groupSkipped);
+          const btn = document.getElementById(`skip-btn-group-${groupPrimary}`);
+          if (btn) {
+            btn.classList.toggle('active', groupSkipped);
+            btn.textContent = groupSkipped ? '✓ Δεν μετριέται' : 'Δεν μετριέται';
+          }
+        } else {
+          const rowEl = document.getElementById(`item-row-${realRow}`);
+          if (rowEl) rowEl.classList.toggle('skipped', isSkipped);
+          const btn = document.getElementById(`skip-btn-${realRow}`);
+          if (btn) {
+            btn.classList.toggle('active', isSkipped);
+            btn.textContent = isSkipped ? '✓ Δεν μετριέται' : 'Δεν μετριέται';
+          }
+        }
+        refreshTabBadges();
+        return;
+      }
+
       const { itemRow, slot } = parseSlotRow(storedRow);
       const item = ITEM_MAP[itemRow];
       if (!item || rec.count_date !== countDate) return;
@@ -662,8 +739,9 @@ function subscribeToChanges() {
         if (!isAuraWaterPackRow(itemRow)) {
           const totalEl = document.getElementById(`total-${itemRow}`);
           if (totalEl) totalEl.textContent = hasAny ? total.toFixed(3) : '—';
-          const rowEl = document.getElementById(`item-row-${itemRow}`);
-          if (rowEl) rowEl.classList.toggle('filled', hasAny);
+          const rowEl = getItemRowEl(itemRow);
+          const gp = ITEM_GROUP_BY_ROW[itemRow];
+          if (rowEl) rowEl.classList.toggle('filled', gp !== undefined ? isGroupFilled(gp) : hasAny);
         }
       }
       if (isAuraWaterPackRow(itemRow)) {
@@ -853,7 +931,7 @@ async function submitStoreCode(n, date) {
 async function enterStore(n, date) {
   storeId = n;
   countDate = date;
-  loadSkippedItems();
+  // skippedItems is now loaded from Supabase inside loadData()
   localStorage.setItem(STORE_KEY, n);
   localStorage.setItem(DATE_KEY, date);
   document.getElementById('app').innerHTML = `
@@ -922,23 +1000,160 @@ function buildTabs() {
 }
 
 function buildItemsList() {
-  const list = searchQuery
-    ? ITEMS.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (i.code && i.code.toLowerCase().includes(searchQuery.toLowerCase())))
-    : ITEMS.filter(i => i.category === activeCategory);
+  let list;
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    const matched = ITEMS.filter(i =>
+      i.name.toLowerCase().includes(q) || (i.code && i.code.toLowerCase().includes(q))
+    );
+    // Deduplicate: secondary rows resolve to their group primary
+    const seenPrimary = new Set();
+    list = [];
+    for (const item of matched) {
+      const primary = ITEM_GROUP_BY_ROW[item.row];
+      const keyRow = primary !== undefined ? primary : item.row;
+      if (seenPrimary.has(keyRow)) continue;
+      seenPrimary.add(keyRow);
+      list.push(ITEM_MAP[keyRow] || item);
+    }
+  } else {
+    list = ITEMS.filter(i => i.category === activeCategory);
+  }
 
   if (!list.length) return '<div class="empty-state">Δεν βρέθηκαν είδη</div>';
 
   let html = '';
   let lastCat = null;
   for (const item of list) {
+    if (ITEM_GROUP_SECONDARY_ROWS.has(item.row)) continue;
     if (searchQuery && item.category !== lastCat) {
       html += `<div class="category-divider">${CAT_LABELS[item.category] || item.category}</div>`;
       lastCat = item.category;
     }
-    html += buildItemRow(item);
+    if (ITEM_GROUPS[item.row]) {
+      html += buildGroupRow(item.row);
+    } else {
+      html += buildItemRow(item);
+    }
   }
   return html;
+}
+
+function buildGroupRow(primaryRow) {
+  const primary = ITEM_MAP[primaryRow];
+  const group = ITEM_GROUPS[primaryRow];
+  const isSkipped = group.sections.some(s => skippedItems.has(s.row));
+  const filled = isGroupFilled(primaryRow);
+  const step = '0.001';
+  const mode = 'decimal';
+
+  const sectionsHtml = group.sections.map(section => {
+    const sItem = ITEM_MAP[section.row];
+    if (!sItem) return '';
+
+    if (isKilo(sItem)) {
+      const cfg = getItemCfg(section.row);
+      const { num_inputs, tare_count } = cfg;
+      const slots = slotValues[section.row] || [];
+
+      const numOpts = Array.from({length:10},(_,i)=>
+        `<option value="${i+1}"${num_inputs===i+1?' selected':''}>${i+1}</option>`).join('');
+      const tareOpts = Array.from({length:num_inputs+1},(_,i)=>
+        `<option value="${i}"${tare_count===i?' selected':''}>${i}</option>`).join('');
+      const cfgHtml = `
+        <div class="item-cfg-selects">
+          <div class="cfg-sel-wrap">
+            <span class="cfg-label">Θέσεις</span>
+            <select class="cfg-select" onchange="onItemCfgChange(${section.row},'num_inputs',this.value)">${numOpts}</select>
+          </div>
+          <div class="cfg-sel-wrap">
+            <span class="cfg-label">Αποβαρο</span>
+            <select class="cfg-select" id="tare-sel-${section.row}" onchange="onItemCfgChange(${section.row},'tare_count',this.value)">${tareOpts}</select>
+          </div>
+        </div>`;
+
+      const slotsHtml = Array.from({ length: num_inputs }, (_, slot) => {
+        const slotCw = getSlotCw(section.row, slot);
+        const isTare = !!slotCw;
+        const netVal = slots[slot];
+        const dispVal = isTare && netVal !== undefined ? (netVal + slotCw).toFixed(3) : (netVal !== undefined ? netVal.toFixed(3) : '');
+        const slotLabel = num_inputs > 1 ? `<span class="slot-label">Θ${slot + 1}</span>` : '';
+        const netDisplay = isTare ? `
+          <div class="net-display ${netVal !== undefined ? '' : 'empty'}" id="net-${section.row}-${slot}">
+            ${netVal !== undefined ? `<span class="net-value">${netVal.toFixed(3)}</span><span class="net-unit">kg</span>` : `<span class="net-value placeholder">—</span>`}
+          </div>` : '';
+        return `
+          <div class="item-slot">
+            ${slotLabel}
+            <div class="item-input-wrap slot-input-wrap">
+              <div class="input-group">
+                <input type="number" class="qty-input${isTare ? ' gross-input' : ''}"
+                  data-row="${section.row}" data-slot="${slot}"
+                  placeholder="${isTare ? 'Μεικτό' : '0'}"
+                  value="${dispVal}" min="0" step="${step}" inputmode="${mode}"
+                  oninput="onSlotInput(${section.row}, ${slot}, this.value)">
+                <span class="unit-label">kg</span>
+              </div>
+              ${netDisplay}
+            </div>
+          </div>`;
+      }).join('');
+
+      const totalKilo = counts[section.row];
+      const totalBar = num_inputs > 1 ? `
+        <div class="item-total-bar">
+          <span>📊 Σύνολο:</span>
+          <span class="total-value" id="total-${section.row}">${totalKilo !== undefined ? totalKilo.toFixed(3) : '—'}</span>
+          <span>kg</span>
+        </div>` : '';
+
+      return `
+        <div class="slot-group">
+          <div class="slot-group-header">
+            <span class="slot-group-label">${h(section.label)}</span>
+            ${cfgHtml}
+          </div>
+          ${slotsHtml}
+          ${totalBar}
+        </div>`;
+    } else {
+      // Non-ΚΙΛΟ section: simple piece count
+      const net = counts[section.row];
+      const displayVal = net !== undefined ? (net % 1 === 0 ? String(net) : parseFloat(net.toFixed(3)).toString()) : '';
+      return `
+        <div class="slot-group">
+          <div class="slot-group-header">
+            <span class="slot-group-label">${h(section.label)}</span>
+          </div>
+          <div class="item-slot">
+            <div class="item-input-wrap slot-input-wrap">
+              <div class="input-group">
+                <input type="number" class="qty-input" data-row="${section.row}" data-slot="0"
+                  placeholder="0" value="${displayVal}" min="0" step="1" inputmode="numeric"
+                  oninput="onSlotInput(${section.row}, 0, this.value)">
+                <span class="unit-label">${h(sItem.unit)}</span>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }
+  }).join('');
+
+  return `
+    <div class="item-group item-row${filled ? ' filled' : ''}${isSkipped ? ' skipped' : ''}" id="item-group-${primaryRow}">
+      <div class="item-header-row">
+        <div class="item-info">
+          <span class="item-name">${h(primary.name)}</span>
+          ${primary.code ? `<span class="item-code">${h(primary.code)}</span>` : ''}
+        </div>
+      </div>
+      <div class="item-slots">
+        ${sectionsHtml}
+      </div>
+      <div class="skip-row">
+        <button id="skip-btn-group-${primaryRow}" class="skip-btn${isSkipped ? ' active' : ''}" onclick="toggleGroupSkip(${primaryRow})">${isSkipped ? '✓ Δεν μετριέται' : 'Δεν μετριέται'}</button>
+      </div>
+    </div>`;
 }
 
 function buildItemRow(item) {
@@ -1115,11 +1330,46 @@ function buildItemRow(item) {
     const isTare = !!slotCw;
     const netVal = slots[slot];  // stored as net
     const dispVal = isTare && netVal !== undefined ? (netVal + slotCw).toFixed(3) : (netVal !== undefined ? netVal.toFixed(3) : '');
-    const labelText = hasSlotLabels
-      ? (SLOT_LABELS[item.row][slot] || `Θ${slot + 1}`)
-      : (num_inputs > 1 ? `Θ${slot + 1}` : '');
-    const slotLabel = labelText ? `<span class="slot-label">${labelText}</span>` : '';
 
+    if (hasSlotLabels) {
+      const labelText = SLOT_LABELS[item.row][slot] || `Θ${slot + 1}`;
+      const cwVal = slotCw !== undefined ? slotCw : '';
+      const netDisplay = `
+        <div class="net-display${!isTare ? ' hidden' : (netVal !== undefined ? '' : ' empty')}" id="net-${item.row}-${slot}">
+          ${isTare && netVal !== undefined ? `<span class="net-value">${netVal.toFixed(3)}</span><span class="net-unit">kg</span>` : `<span class="net-value placeholder">—</span>`}
+        </div>`;
+      return `
+        <div class="item-slot slot-labeled-tare">
+          <span class="slot-label">${labelText}</span>
+          <div class="labeled-tare-controls">
+            <div class="tare-input-row">
+              <span class="cfg-label">Αποβαρο</span>
+              <div class="input-group">
+                <input type="number" class="qty-input tare-inline"
+                  id="tare-inline-${item.row}-${slot}"
+                  placeholder="—" value="${cwVal}"
+                  min="0" step="0.001" inputmode="decimal"
+                  oninput="onSlotTareInput(${item.row}, ${slot}, this.value)">
+                <span class="unit-label">kg</span>
+              </div>
+            </div>
+            <div class="item-input-wrap slot-input-wrap">
+              <div class="input-group">
+                <input type="number" class="qty-input${isTare ? ' gross-input' : ''}"
+                  data-row="${item.row}" data-slot="${slot}"
+                  placeholder="${isTare ? 'Μεικτό' : '0'}"
+                  value="${dispVal}" min="0" step="${step}" inputmode="${mode}"
+                  oninput="onSlotInput(${item.row}, ${slot}, this.value)">
+                <span class="unit-label">kg</span>
+              </div>
+              ${netDisplay}
+            </div>
+          </div>
+        </div>`;
+    }
+
+    const labelText = num_inputs > 1 ? `Θ${slot + 1}` : '';
+    const slotLabel = labelText ? `<span class="slot-label">${labelText}</span>` : '';
     const netDisplay = isTare ? `
       <div class="net-display ${netVal !== undefined ? '' : 'empty'}" id="net-${item.row}-${slot}">
         ${netVal !== undefined
@@ -1320,8 +1570,9 @@ function onSlotInput(itemRow, slot, raw) {
   if (totalEl) totalEl.textContent = hasAny ? total.toFixed(3) : '—';
 
   // Update filled state
-  const rowEl = document.getElementById(`item-row-${itemRow}`);
-  if (rowEl) rowEl.classList.toggle('filled', hasAny);
+  const rowEl = getItemRowEl(itemRow);
+  const gp = ITEM_GROUP_BY_ROW[itemRow];
+  if (rowEl) rowEl.classList.toggle('filled', gp !== undefined ? isGroupFilled(gp) : hasAny);
 
   refreshTabBadges();
 
@@ -1378,15 +1629,76 @@ function onItemCfgChange(itemRow, type, newVal) {
 
   itemConfig[itemRow] = cfg;
 
-  const rowEl = document.getElementById(`item-row-${itemRow}`);
-  if (rowEl) {
-    const tmp = document.createElement('div');
-    tmp.innerHTML = buildItemRow(ITEM_MAP[itemRow]);
-    rowEl.replaceWith(tmp.firstElementChild);
+  const groupPrimary = ITEM_GROUP_BY_ROW[itemRow];
+  if (groupPrimary !== undefined) {
+    const groupEl = document.getElementById(`item-group-${groupPrimary}`);
+    if (groupEl) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = buildGroupRow(groupPrimary);
+      groupEl.replaceWith(tmp.firstElementChild);
+    }
+  } else {
+    const rowEl = document.getElementById(`item-row-${itemRow}`);
+    if (rowEl) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = buildItemRow(ITEM_MAP[itemRow]);
+      rowEl.replaceWith(tmp.firstElementChild);
+    }
   }
 
   clearTimeout(saveTimers[`cfg-${itemRow}`]);
   saveTimers[`cfg-${itemRow}`] = setTimeout(() => saveItemCfg(itemRow), 800);
+}
+
+function onSlotTareInput(itemRow, slot, raw) {
+  const key = slotRow(itemRow, slot);
+  const val = parseFloat(raw);
+  const hasTare = raw !== '' && !isNaN(val) && val > 0;
+
+  if (hasTare) containerWeights[key] = val;
+  else delete containerWeights[key];
+
+  const netVal = (slotValues[itemRow] || [])[slot];
+
+  // Update the quantity input (placeholder, class, displayed value)
+  const qtyInput = document.querySelector(`[data-row="${itemRow}"][data-slot="${slot}"]`);
+  if (qtyInput && document.activeElement !== qtyInput) {
+    qtyInput.placeholder = hasTare ? 'Μεικτό' : '0';
+    qtyInput.classList.toggle('gross-input', hasTare);
+    if (netVal !== undefined) {
+      qtyInput.value = hasTare ? (netVal + val).toFixed(3) : netVal.toFixed(3);
+    } else {
+      qtyInput.value = '';
+    }
+  }
+
+  // Show/hide net display
+  const netEl = document.getElementById(`net-${itemRow}-${slot}`);
+  if (netEl) {
+    netEl.classList.toggle('hidden', !hasTare);
+    if (hasTare) {
+      netEl.classList.toggle('empty', netVal === undefined);
+      netEl.innerHTML = netVal !== undefined
+        ? `<span class="net-value">${netVal.toFixed(3)}</span><span class="net-unit">kg</span>`
+        : `<span class="net-value placeholder">—</span>`;
+    }
+  }
+
+  // Debounce save to Supabase
+  clearTimeout(saveTimers[`tare-${key}`]);
+  saveTimers[`tare-${key}`] = setTimeout(async () => {
+    try {
+      if (hasTare) {
+        await sb.from('container_weights').upsert(
+          { store_id: storeId, item_row: key, weight_kg: val },
+          { onConflict: 'store_id,item_row' }
+        );
+      } else {
+        await sb.from('container_weights').delete()
+          .eq('store_id', storeId).eq('item_row', key);
+      }
+    } catch(e) { console.error('Tare save error:', e); }
+  }, 800);
 }
 
 async function saveItemCfg(itemRow) {
