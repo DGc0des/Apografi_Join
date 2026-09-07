@@ -304,6 +304,7 @@ let searchQuery    = '';
 let channel        = null;
 let saveTimers     = {};
 let adminDirty          = false;
+let adminSaving         = false;
 let adminOriginalValues = {}; // { data-row: string } captured when admin screen opens
 let skippedItems   = new Set(); // item rows marked as "Δεν μετριέται"
 
@@ -806,6 +807,10 @@ function processInput(item, raw) {
 // ==============================
 // SCREEN: SETUP
 // ==============================
+function cancelSetup() {
+  if (sb || initSupabase()) renderStoreScreen();
+}
+
 function renderSetupScreen() {
   rememberView('setup');
   document.getElementById('app').innerHTML = `
@@ -829,6 +834,8 @@ function renderSetupScreen() {
         </div>
         <button class="btn-primary" onclick="saveSetup()">Αποθήκευση &amp; Συνέχεια</button>
         <div id="setup-error" class="error-msg"></div>
+        ${sb || (localStorage.getItem(SUPABASE_URL_KEY) && localStorage.getItem(SUPABASE_KEY_KEY))
+          ? '<button class="btn-secondary" onclick="cancelSetup()">← Πίσω στα καταστήματα</button>' : ''}
       </div>
     </div>`;
 }
@@ -1024,12 +1031,16 @@ function buildTabs() {
   }).join('');
 }
 
+function normalizeSearch(value) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/ς/g, 'σ').trim();
+}
+
 function buildItemsList() {
   let list;
-  if (searchQuery) {
-    const q = searchQuery.toLowerCase();
+  const q = normalizeSearch(searchQuery);
+  if (q) {
     const matched = ITEMS.filter(i =>
-      i.name.toLowerCase().includes(q) || (i.code && i.code.toLowerCase().includes(q))
+      normalizeSearch(i.name).includes(q) || (i.code && normalizeSearch(i.code).includes(q))
     );
     // Deduplicate: secondary rows resolve to their group primary
     const seenPrimary = new Set();
@@ -1051,7 +1062,7 @@ function buildItemsList() {
   let lastCat = null;
   for (const item of list) {
     if (ITEM_GROUP_SECONDARY_ROWS.has(item.row)) continue;
-    if (searchQuery && item.category !== lastCat) {
+    if (q && item.category !== lastCat) {
       html += `<div class="category-divider">${CAT_LABELS[item.category] || item.category}</div>`;
       lastCat = item.category;
     }
@@ -1481,12 +1492,12 @@ function switchTab(cat) {
 }
 
 function onSearch(q) {
-  searchQuery = q;
+  searchQuery = q.trim();
   rememberView();
   const ic = document.getElementById('items-container');
   if (ic) ic.innerHTML = buildItemsList();
   const tw = document.getElementById('tabs-wrap');
-  if (tw) tw.style.display = q ? 'none' : '';
+  if (tw) tw.style.display = searchQuery ? 'none' : '';
 }
 
 function totalCountedText() {
@@ -1817,6 +1828,45 @@ function adminWeightChanged(a, b) {
   return pa !== pb;
 }
 
+function adminDraftKey() {
+  return 'join_admin_draft_' + JSON.stringify([localStorage.getItem(SUPABASE_URL_KEY), storeId]);
+}
+
+function clearAdminDraft() {
+  try { sessionStorage.removeItem(adminDraftKey()); } catch (_) {}
+}
+
+function updateAdminSaveStatus() {
+  const status = document.getElementById('admin-save-status');
+  if (status) status.textContent = adminDirty ? 'Μη αποθηκευμένες αλλαγές' : 'Όλες οι αλλαγές αποθηκεύτηκαν';
+}
+
+function persistAdminDraft() {
+  const draft = {};
+  document.querySelectorAll('.admin-weight-input').forEach(inp => {
+    if (adminWeightChanged(inp.value, adminOriginalValues[inp.dataset.row] ?? '')) {
+      draft[inp.dataset.row] = inp.value;
+    }
+  });
+  try {
+    if (Object.keys(draft).length) sessionStorage.setItem(adminDraftKey(), JSON.stringify(draft));
+    else clearAdminDraft();
+  } catch (_) { /* The unload warning still protects edits when storage is unavailable. */ }
+}
+
+function discardAdminChanges() {
+  clearAdminDraft();
+  adminDirty = false;
+  document.getElementById('admin-back-modal').remove();
+  renderCountingScreen();
+}
+
+window.addEventListener('beforeunload', e => {
+  if (!adminDirty) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
 function onAdminWeightInput(inputEl) {
   const key = inputEl.dataset.row;
   const changed = adminWeightChanged(inputEl.value, adminOriginalValues[key] ?? '');
@@ -1829,9 +1879,12 @@ function onAdminWeightInput(inputEl) {
 
   adminDirty = Array.from(document.querySelectorAll('.admin-weight-input'))
     .some(inp => adminWeightChanged(inp.value, adminOriginalValues[inp.dataset.row] ?? ''));
+  persistAdminDraft();
+  updateAdminSaveStatus();
 }
 
 function goBackFromAdmin() {
+  if (adminSaving) return;
   if (!adminDirty) { renderCountingScreen(); return; }
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
@@ -1842,7 +1895,7 @@ function goBackFromAdmin() {
       <p style="text-align:center;color:var(--text-secondary);margin:8px 0 16px">Έχεις αλλαγές που δεν αποθηκεύτηκαν. Θες να φύγεις χωρίς αποθήκευση;</p>
       <div class="modal-actions">
         <button class="btn-secondary" onclick="document.getElementById('admin-back-modal').remove()">Παραμονή</button>
-        <button class="btn-danger" onclick="adminDirty=false;document.getElementById('admin-back-modal').remove();renderCountingScreen()">Έξοδος χωρίς αποθήκευση</button>
+        <button class="btn-danger" onclick="discardAdminChanges()">Έξοδος χωρίς αποθήκευση</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
@@ -1946,12 +1999,15 @@ function renderAdminScreen() {
         </div>
         ${sections}
         <div class="admin-actions">
-          <button class="btn-primary" onclick="saveContainerWeights()">💾 Αποθήκευση</button>
           <button class="btn-secondary" onclick="openChangePinModal()">🔑 Αλλαγή PIN</button>
         </div>
         <div id="admin-msg" class="success-msg" style="text-align:center"></div>
 
         ${buildCodesSection()}
+      </div>
+      <div class="admin-save-bar">
+        <span id="admin-save-status" role="status"></span>
+        <button class="btn-primary" id="admin-save-btn" onclick="saveContainerWeights()">💾 Αποθήκευση</button>
       </div>
     </div>`;
 
@@ -1959,10 +2015,24 @@ function renderAdminScreen() {
   document.querySelectorAll('.admin-weight-input').forEach(inp => {
     adminOriginalValues[inp.dataset.row] = inp.value;
   });
+  let draft = {};
+  try { draft = JSON.parse(sessionStorage.getItem(adminDraftKey())) || {}; } catch (_) {}
+  document.querySelectorAll('.admin-weight-input').forEach(inp => {
+    if (typeof draft[inp.dataset.row] === 'string') {
+      inp.value = draft[inp.dataset.row];
+      onAdminWeightInput(inp);
+    }
+  });
+  updateAdminSaveStatus();
 }
 
 async function saveContainerWeights() {
+  if (adminSaving) return;
+  adminSaving = true;
+  const saveButton = document.getElementById('admin-save-btn');
+  if (saveButton) saveButton.disabled = true;
   const inputs = document.querySelectorAll('.admin-weight-input');
+  const submittedValues = Object.fromEntries(Array.from(inputs, inp => [inp.dataset.row, inp.value]));
   const upserts = [];
   const toDelete = [];
 
@@ -1982,22 +2052,25 @@ async function saveContainerWeights() {
       if (error) throw error;
     }
     for (const row of toDelete) {
-      await sb.from('container_weights').delete().eq('store_id', storeId).eq('item_row', row);
+      const { error } = await sb.from('container_weights').delete().eq('store_id', storeId).eq('item_row', row);
+      if (error) throw error;
     }
     upserts.forEach(u => { containerWeights[u.item_row] = u.weight_kg; });
     toDelete.forEach(row => { delete containerWeights[row]; });
 
     adminDirty = false;
-    document.querySelectorAll('.admin-field-warn').forEach(w => { w.style.display = 'none'; });
-    document.querySelectorAll('.admin-weight-input').forEach(inp => {
-      adminOriginalValues[inp.dataset.row] = inp.value;
-    });
+    adminOriginalValues = submittedValues;
+    // Edits made while the request was in flight still need saving.
+    inputs.forEach(inp => onAdminWeightInput(inp));
     const msg = document.getElementById('admin-msg');
     if (msg) { msg.textContent = '✓ Αποθηκεύτηκε'; setTimeout(() => { if(msg) msg.textContent=''; }, 3000); }
     showToast('Αποθηκεύτηκε', 'success');
   } catch(e) {
     console.error(e);
     showToast('Σφάλμα αποθήκευσης', 'error');
+  } finally {
+    adminSaving = false;
+    if (saveButton) saveButton.disabled = false;
   }
 }
 

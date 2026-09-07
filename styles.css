@@ -571,7 +571,16 @@ body.dark-mode .admin-field-warn {
 .btn-export:disabled { opacity: .6; cursor: not-allowed; }
 
 /* ===== ADMIN SCREEN ===== */
-.admin-screen { background: var(--bg); }
+.admin-screen { background: var(--bg); padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+.admin-save-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: var(--white); border-top: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+.admin-save-bar .btn-primary { margin: 0; width: auto; flex-shrink: 0; min-height: 44px; }
+#admin-save-status { font-size: 12px; color: var(--text-secondary); max-width: 260px; }
 .admin-content {
   flex: 1;
   overflow-y: auto;
@@ -884,7 +893,8 @@ body.dark-mode .admin-field-warn {
   background: var(--bg);
   color: var(--text);
   cursor: pointer;
-  width: 42px;
+  width: 44px;
+  min-height: 44px;
   text-align: center;
   -webkit-appearance: none;
   appearance: none;
@@ -901,6 +911,8 @@ body.dark-mode .admin-field-warn {
   justify-content: flex-start;
 }
 .skip-btn {
+  min-height: 44px;
+  min-width: 44px;
   font-size: 11px;
   font-weight: 600;
   padding: 2px 10px;
