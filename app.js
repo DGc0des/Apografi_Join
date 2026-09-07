@@ -248,7 +248,7 @@ const LEGACY_THEME_KEY = 'join_theme';
 const PIN_KEY          = 'join_admin_pin';
 const DEFAULT_PIN      = '1234';
 const CATEGORIES       = ['FOOD','COFFEE','JUICES','ΑΝΑΛΩΣΙΜΑ','ΤΣΑΪ','ΣΥΣΚΕΥΑΣΙΕΣ'];
-const CAT_LABELS       = {'FOOD':'🥗 FOOD','COFFEE':'☕ COFFEE','JUICES':'🥤 JUICES','ΑΝΑΛΩΣΙΜΑ':'🧻 ΑΝΑΛΩΣΙΜΑ','ΤΣΑΪ':'🍵 ΤΣΑΪ','ΣΥΣΚΕΥΑΣΙΕΣ':'📦 ΣΥΣΚΕΥΑΣΙΕΣ'};
+const CAT_LABELS       = {'FOOD':'FOOD','COFFEE':'COFFEE','JUICES':'JUICES','ΑΝΑΛΩΣΙΜΑ':'ΑΝΑΛΩΣΙΜΑ','ΤΣΑΪ':'ΤΣΑΪ','ΣΥΣΚΕΥΑΣΙΕΣ':'ΣΥΣΚΕΥΑΣΙΕΣ'};
 const STORE_NAMES      = {1:'Cosmos', 2:'Πατρών', 3:'Λευκός', 4:'Ποσειδώνιο', 5:'OneSalica'};
 // Items with distinct per-slot sub-locations and independent tare weights.
 // Each entry fixes the slot count and labels; tare is determined by whether each slot has a cw.
@@ -323,6 +323,24 @@ function rememberView(screen = currentScreen) {
 function readView() {
   try { return JSON.parse(sessionStorage.getItem(VIEW_KEY)) || {}; }
   catch (_) { return {}; }
+}
+
+// Reset after the new screen has replaced the loading/previous layout.
+function resetScreenScroll() {
+  requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: 'instant' }));
+}
+
+// Only move the category strip. scrollIntoView also scrolls the document on iOS.
+function revealActiveTab(behavior = 'instant') {
+  const strip = document.getElementById('tabs-wrap');
+  const active = strip && strip.querySelector('.tab-btn.active');
+  if (!active) return;
+  const stripRect = strip.getBoundingClientRect();
+  const activeRect = active.getBoundingClientRect();
+  strip.scrollTo({
+    left: strip.scrollLeft + activeRect.left - stripRect.left - (strip.clientWidth - activeRect.width) / 2,
+    behavior
+  });
 }
 
 // ==============================
@@ -435,11 +453,7 @@ async function toggleSkip(itemRow) {
   if (isSkipped) skippedItems.add(itemRow); else skippedItems.delete(itemRow);
   const rowEl = document.getElementById(`item-row-${itemRow}`);
   if (rowEl) rowEl.classList.toggle('skipped', isSkipped);
-  const btn = document.getElementById(`skip-btn-${itemRow}`);
-  if (btn) {
-    btn.classList.toggle('active', isSkipped);
-    btn.textContent = isSkipped ? '✓ Δεν μετριέται' : 'Δεν μετριέται';
-  }
+  setSkipBtnState(document.getElementById(`skip-btn-${itemRow}`), isSkipped);
   refreshTabBadges();
   await upsertCount(itemRow + SKIP_MARKER_BASE, isSkipped ? 1 : 0);
 }
@@ -452,15 +466,49 @@ async function toggleGroupSkip(primaryRow) {
   }
   const groupEl = document.getElementById(`item-group-${primaryRow}`);
   if (groupEl) groupEl.classList.toggle('skipped', isSkipped);
-  const btn = document.getElementById(`skip-btn-group-${primaryRow}`);
-  if (btn) {
-    btn.classList.toggle('active', isSkipped);
-    btn.textContent = isSkipped ? '✓ Δεν μετριέται' : 'Δεν μετριέται';
-  }
+  setSkipBtnState(document.getElementById(`skip-btn-group-${primaryRow}`), isSkipped);
   refreshTabBadges();
   for (const s of group.sections) {
     await upsertCount(s.row + SKIP_MARKER_BASE, isSkipped ? 1 : 0);
   }
+}
+
+// ==============================
+// ICONS
+// ==============================
+// Phosphor Icons (regular weight), MIT licensed, inlined from
+// @phosphor-icons/core@2.1.1 so the app stays three static files.
+// One family, one weight, no hand-drawn glyphs: to add an icon, copy the
+// official path from the package instead of drawing a new one.
+const ICONS = {
+  'caret-right': '<path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z"/>',
+  'caret-left': '<path d="M165.66,202.34a8,8,0,0,1-11.32,11.32l-80-80a8,8,0,0,1,0-11.32l80-80a8,8,0,0,1,11.32,11.32L91.31,128Z"/>',
+  'gear': '<path d="M128,80a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Zm88-29.84q.06-2.16,0-4.32l14.92-18.64a8,8,0,0,0,1.48-7.06,107.21,107.21,0,0,0-10.88-26.25,8,8,0,0,0-6-3.93l-23.72-2.64q-1.48-1.56-3-3L186,40.54a8,8,0,0,0-3.94-6,107.71,107.71,0,0,0-26.25-10.87,8,8,0,0,0-7.06,1.49L130.16,40Q128,40,125.84,40L107.2,25.11a8,8,0,0,0-7.06-1.48A107.6,107.6,0,0,0,73.89,34.51a8,8,0,0,0-3.93,6L67.32,64.27q-1.56,1.49-3,3L40.54,70a8,8,0,0,0-6,3.94,107.71,107.71,0,0,0-10.87,26.25,8,8,0,0,0,1.49,7.06L40,125.84Q40,128,40,130.16L25.11,148.8a8,8,0,0,0-1.48,7.06,107.21,107.21,0,0,0,10.88,26.25,8,8,0,0,0,6,3.93l23.72,2.64q1.49,1.56,3,3L70,215.46a8,8,0,0,0,3.94,6,107.71,107.71,0,0,0,26.25,10.87,8,8,0,0,0,7.06-1.49L125.84,216q2.16.06,4.32,0l18.64,14.92a8,8,0,0,0,7.06,1.48,107.21,107.21,0,0,0,26.25-10.88,8,8,0,0,0,3.93-6l2.64-23.72q1.56-1.48,3-3L215.46,186a8,8,0,0,0,6-3.94,107.71,107.71,0,0,0,10.87-26.25,8,8,0,0,0-1.49-7.06Zm-16.1-6.5a73.93,73.93,0,0,1,0,8.68,8,8,0,0,0,1.74,5.48l14.19,17.73a91.57,91.57,0,0,1-6.23,15L187,173.11a8,8,0,0,0-5.1,2.64,74.11,74.11,0,0,1-6.14,6.14,8,8,0,0,0-2.64,5.1l-2.51,22.58a91.32,91.32,0,0,1-15,6.23l-17.74-14.19a8,8,0,0,0-5-1.75h-.48a73.93,73.93,0,0,1-8.68,0,8,8,0,0,0-5.48,1.74L100.45,215.8a91.57,91.57,0,0,1-15-6.23L82.89,187a8,8,0,0,0-2.64-5.1,74.11,74.11,0,0,1-6.14-6.14,8,8,0,0,0-5.1-2.64L46.43,170.6a91.32,91.32,0,0,1-6.23-15l14.19-17.74a8,8,0,0,0,1.74-5.48,73.93,73.93,0,0,1,0-8.68,8,8,0,0,0-1.74-5.48L40.2,100.45a91.57,91.57,0,0,1,6.23-15L69,82.89a8,8,0,0,0,5.1-2.64,74.11,74.11,0,0,1,6.14-6.14A8,8,0,0,0,82.89,69L85.4,46.43a91.32,91.32,0,0,1,15-6.23l17.74,14.19a8,8,0,0,0,5.48,1.74,73.93,73.93,0,0,1,8.68,0,8,8,0,0,0,5.48-1.74L155.55,40.2a91.57,91.57,0,0,1,15,6.23L173.11,69a8,8,0,0,0,2.64,5.1,74.11,74.11,0,0,1,6.14,6.14,8,8,0,0,0,5.1,2.64l22.58,2.51a91.32,91.32,0,0,1,6.23,15l-14.19,17.74A8,8,0,0,0,199.87,123.66Z"/>',
+  'magnifying-glass': '<path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"/>',
+  'download-simple': '<path d="M224,144v64a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V144a8,8,0,0,1,16,0v56H208V144a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,124.69V32a8,8,0,0,0-16,0v92.69L93.66,98.34a8,8,0,0,0-11.32,11.32Z"/>',
+  'moon': '<path d="M233.54,142.23a8,8,0,0,0-8-2,88.08,88.08,0,0,1-109.8-109.8,8,8,0,0,0-10-10,104.84,104.84,0,0,0-52.91,37A104,104,0,0,0,136,224a103.09,103.09,0,0,0,62.52-20.88,104.84,104.84,0,0,0,37-52.91A8,8,0,0,0,233.54,142.23ZM188.9,190.34A88,88,0,0,1,65.66,67.11a89,89,0,0,1,31.4-26A106,106,0,0,0,96,56,104.11,104.11,0,0,0,200,160a106,106,0,0,0,14.92-1.06A89,89,0,0,1,188.9,190.34Z"/>',
+  'sun': '<path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm72,88a64,64,0,1,1-64-64A64.07,64.07,0,0,1,192,128Zm-16,0a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,128ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/>',
+  'check': '<path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"/>',
+  'check-circle': '<path d="M173.66,98.34a8,8,0,0,1,0,11.32l-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35A8,8,0,0,1,173.66,98.34ZM232,128A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/>',
+  'prohibit': '<path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm88,104a87.56,87.56,0,0,1-20.41,56.28L71.72,60.4A88,88,0,0,1,216,128ZM40,128A87.56,87.56,0,0,1,60.41,71.72L184.28,195.6A88,88,0,0,1,40,128Z"/>',
+  'calendar-blank': '<path d="M208,32H184V24a8,8,0,0,0-16,0v8H88V24a8,8,0,0,0-16,0v8H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32ZM72,48v8a8,8,0,0,0,16,0V48h80v8a8,8,0,0,0,16,0V48h24V80H48V48ZM208,208H48V96H208V208Z"/>',
+  'x': '<path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/>',
+  'key': '<path d="M216.57,39.43A80,80,0,0,0,83.91,120.78L28.69,176A15.86,15.86,0,0,0,24,187.31V216a16,16,0,0,0,16,16H72a8,8,0,0,0,8-8V208H96a8,8,0,0,0,8-8V184h16a8,8,0,0,0,5.66-2.34l9.56-9.57A79.73,79.73,0,0,0,160,176h.1A80,80,0,0,0,216.57,39.43ZM224,98.1c-1.09,34.09-29.75,61.86-63.89,61.9H160a63.7,63.7,0,0,1-23.65-4.51,8,8,0,0,0-8.84,1.68L116.69,168H96a8,8,0,0,0-8,8v16H72a8,8,0,0,0-8,8v16H40V187.31l58.83-58.82a8,8,0,0,0,1.68-8.84A63.72,63.72,0,0,1,96,95.92c0-34.14,27.81-62.8,61.9-63.89A64,64,0,0,1,224,98.1ZM192,76a12,12,0,1,1-12-12A12,12,0,0,1,192,76Z"/>',
+  'lock-key': '<path d="M128,112a28,28,0,0,0-8,54.83V184a8,8,0,0,0,16,0V166.83A28,28,0,0,0,128,112Zm0,40a12,12,0,1,1,12-12A12,12,0,0,1,128,152Zm80-72H176V56a48,48,0,0,0-96,0V80H48A16,16,0,0,0,32,96V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V96A16,16,0,0,0,208,80ZM96,56a32,32,0,0,1,64,0V80H96ZM208,208H48V96H208V208Z"/>',
+  'floppy-disk': '<path d="M219.31,72,184,36.69A15.86,15.86,0,0,0,172.69,32H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V83.31A15.86,15.86,0,0,0,219.31,72ZM168,208H88V152h80Zm40,0H184V152a16,16,0,0,0-16-16H88a16,16,0,0,0-16,16v56H48V48H172.69L208,83.31ZM160,72a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h56A8,8,0,0,1,160,72Z"/>',
+  'scales': '<path d="M239.43,133l-32-80h0a8,8,0,0,0-9.16-4.84L136,62V40a8,8,0,0,0-16,0V65.58L54.26,80.19A8,8,0,0,0,48.57,85h0v.06L16.57,165a7.92,7.92,0,0,0-.57,3c0,23.31,24.54,32,40,32s40-8.69,40-32a7.92,7.92,0,0,0-.57-3L66.92,93.77,120,82V208H104a8,8,0,0,0,0,16h48a8,8,0,0,0,0-16H136V78.42L187,67.1,160.57,133a7.92,7.92,0,0,0-.57,3c0,23.31,24.54,32,40,32s40-8.69,40-32A7.92,7.92,0,0,0,239.43,133ZM56,184c-7.53,0-22.76-3.61-23.93-14.64L56,109.54l23.93,59.82C78.76,180.39,63.53,184,56,184Zm144-32c-7.53,0-22.76-3.61-23.93-14.64L200,77.54l23.93,59.82C222.76,148.39,207.53,152,200,152Z"/>',
+  'warning': '<path d="M236.8,188.09,149.35,36.22h0a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8ZM120,144V104a8,8,0,0,1,16,0v40a8,8,0,0,1-16,0Zm20,36a12,12,0,1,1-12-12A12,12,0,0,1,140,180Z"/>',
+  'arrow-left': '<path d="M224,128a8,8,0,0,1-8,8H59.31l58.35,58.34a8,8,0,0,1-11.32,11.32l-72-72a8,8,0,0,1,0-11.32l72-72a8,8,0,0,1,11.32,11.32L59.31,120H216A8,8,0,0,1,224,128Z"/>',
+  'caret-down': '<path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/>',
+  'storefront': '<path d="M232,96a7.89,7.89,0,0,0-.3-2.2L217.35,43.6A16.07,16.07,0,0,0,202,32H54A16.07,16.07,0,0,0,38.65,43.6L24.31,93.8A7.89,7.89,0,0,0,24,96h0v16a40,40,0,0,0,16,32v72a8,8,0,0,0,8,8H208a8,8,0,0,0,8-8V144a40,40,0,0,0,16-32V96ZM54,48H202l11.42,40H42.61Zm50,56h48v8a24,24,0,0,1-48,0Zm-16,0v8a24,24,0,0,1-35.12,21.26,7.88,7.88,0,0,0-1.82-1.06A24,24,0,0,1,40,112v-8ZM200,208H56V151.2a40.57,40.57,0,0,0,8,.8,40,40,0,0,0,32-16,40,40,0,0,0,64,0,40,40,0,0,0,32,16,40.57,40.57,0,0,0,8-.8Zm4.93-75.8a8.08,8.08,0,0,0-1.8,1.05A24,24,0,0,1,168,112v-8h48v8A24,24,0,0,1,204.93,132.2Z"/>',
+  'trash': '<path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"/>',
+  'sliders-horizontal': '<path d="M40,88H73a32,32,0,0,0,62,0h81a8,8,0,0,0,0-16H135a32,32,0,0,0-62,0H40a8,8,0,0,0,0,16Zm64-24A16,16,0,1,1,88,80,16,16,0,0,1,104,64ZM216,168H199a32,32,0,0,0-62,0H40a8,8,0,0,0,0,16h97a32,32,0,0,0,62,0h17a8,8,0,0,0,0-16Zm-48,24a16,16,0,1,1,16-16A16,16,0,0,1,168,192Z"/>',
+};
+
+function icon(name, extraClass = '') {
+  const glyph = ICONS[name];
+  if (!glyph) return '';
+  return `<svg class="ic${extraClass ? ' ' + extraClass : ''}" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false">${glyph}</svg>`;
 }
 
 function h(str) {
@@ -506,7 +554,7 @@ function getDarkModePreference() {
 function applyDarkMode(on) {
   document.body.classList.toggle('dark-mode', !!on);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = on ? '#000000' : '#F0F4C3';
+  if (meta) meta.content = on ? '#121110' : '#f1efeb';
 }
 
 function initThemeFromStorage() {
@@ -519,7 +567,7 @@ function syncThemeToggleButtons() {
   document.querySelectorAll('.theme-toggle').forEach(btn => {
     btn.title = title;
     btn.setAttribute('aria-label', title);
-    btn.textContent = dark ? '☀️' : '🌙';
+    btn.innerHTML = icon(dark ? 'sun' : 'moon');
   });
 }
 
@@ -533,7 +581,7 @@ function toggleTheme() {
 function themeToggleHtml() {
   const dark = isDarkMode();
   const title = dark ? 'Φωτεινό θέμα' : 'Σκοτεινό θέμα';
-  return `<button type="button" class="icon-btn theme-toggle" onclick="toggleTheme()" title="${h(title)}" aria-label="${h(title)}">${dark ? '☀️' : '🌙'}</button>`;
+  return `<button type="button" class="icon-btn theme-toggle" onclick="toggleTheme()" title="${h(title)}" aria-label="${h(title)}">${icon(dark ? 'sun' : 'moon')}</button>`;
 }
 
 function isKilo(item) {
@@ -700,19 +748,11 @@ function subscribeToChanges() {
           const groupSkipped = ITEM_GROUPS[groupPrimary].sections.some(s => skippedItems.has(s.row));
           const groupEl = document.getElementById(`item-group-${groupPrimary}`);
           if (groupEl) groupEl.classList.toggle('skipped', groupSkipped);
-          const btn = document.getElementById(`skip-btn-group-${groupPrimary}`);
-          if (btn) {
-            btn.classList.toggle('active', groupSkipped);
-            btn.textContent = groupSkipped ? '✓ Δεν μετριέται' : 'Δεν μετριέται';
-          }
+          setSkipBtnState(document.getElementById(`skip-btn-group-${groupPrimary}`), groupSkipped);
         } else {
           const rowEl = document.getElementById(`item-row-${realRow}`);
           if (rowEl) rowEl.classList.toggle('skipped', isSkipped);
-          const btn = document.getElementById(`skip-btn-${realRow}`);
-          if (btn) {
-            btn.classList.toggle('active', isSkipped);
-            btn.textContent = isSkipped ? '✓ Δεν μετριέται' : 'Δεν μετριέται';
-          }
+          setSkipBtnState(document.getElementById(`skip-btn-${realRow}`), isSkipped);
         }
         refreshTabBadges();
         return;
@@ -752,7 +792,7 @@ function subscribeToChanges() {
             netEl.classList.toggle('empty', qty === null);
             netEl.innerHTML = qty !== null
               ? `<span class="net-value">${qty.toFixed(3)}</span><span class="net-unit">kg</span>`
-              : `<span class="net-value placeholder">—</span>`;
+              : `<span class="net-value placeholder">-</span>`;
           }
         } else if (isAuraWaterPackRow(itemRow)) {
           input.value = qty !== null ? String(Math.max(0, Math.floor(qty))) : '';
@@ -761,7 +801,7 @@ function subscribeToChanges() {
         }
         if (!isAuraWaterPackRow(itemRow)) {
           const totalEl = document.getElementById(`total-${itemRow}`);
-          if (totalEl) totalEl.textContent = hasAny ? fmtQty(item, total) : '—';
+          if (totalEl) totalEl.textContent = hasAny ? fmtQty(item, total) : '-';
           const rowEl = getItemRowEl(itemRow);
           const gp = ITEM_GROUP_BY_ROW[itemRow];
           if (rowEl) rowEl.classList.toggle('filled', gp !== undefined ? isGroupFilled(gp) : hasAny);
@@ -769,7 +809,7 @@ function subscribeToChanges() {
       }
       if (isAuraWaterPackRow(itemRow)) {
         const totalEl = document.getElementById(`total-${itemRow}`);
-        if (totalEl) totalEl.textContent = hasAny && total > 0 ? String(total) : '—';
+        if (totalEl) totalEl.textContent = hasAny && total > 0 ? String(total) : '-';
         const rowEl = document.getElementById(`item-row-${itemRow}`);
         if (rowEl) rowEl.classList.toggle('filled', hasAny && total > 0);
       }
@@ -812,30 +852,34 @@ function cancelSetup() {
 }
 
 function renderSetupScreen() {
+  resetScreenScroll();
   rememberView('setup');
   document.getElementById('app').innerHTML = `
     <div class="screen setup-screen">
-      <div class="theme-corner">${themeToggleHtml()}</div>
       <div class="setup-card">
+        <div class="theme-corner">${themeToggleHtml()}</div>
         <div class="logo">
           <div class="logo-icon">J</div>
-          <h1>JOIN Απογραφή</h1>
-          <p class="subtitle">Σύνδεση Supabase</p>
+          <div class="logo-text">
+            <h1>JOIN Απογραφή</h1>
+            <p class="subtitle">Σύνδεση Supabase</p>
+          </div>
         </div>
         <div class="form-group">
-          <label>Supabase Project URL</label>
+          <label for="sb-url">Supabase Project URL</label>
           <input type="url" id="sb-url" placeholder="https://xxxx.supabase.co"
             value="${h(localStorage.getItem(SUPABASE_URL_KEY) || '')}">
         </div>
         <div class="form-group">
-          <label>Anon Key</label>
+          <label for="sb-key">Anon Key</label>
           <input type="text" id="sb-key" placeholder="eyJhbGci..."
             value="${h(localStorage.getItem(SUPABASE_KEY_KEY) || '')}">
+          <p class="field-hint">Αποθηκεύεται μόνο σε αυτή τη συσκευή.</p>
         </div>
         <button class="btn-primary" onclick="saveSetup()">Αποθήκευση &amp; Συνέχεια</button>
         <div id="setup-error" class="error-msg"></div>
         ${sb || (localStorage.getItem(SUPABASE_URL_KEY) && localStorage.getItem(SUPABASE_KEY_KEY))
-          ? '<button class="btn-secondary" onclick="cancelSetup()">← Πίσω στα καταστήματα</button>' : ''}
+          ? `<button class="btn-secondary" onclick="cancelSetup()">${icon('caret-left', 'ic-sm')}<span>Πίσω στα καταστήματα</span></button>` : ''}
       </div>
     </div>`;
 }
@@ -862,30 +906,63 @@ async function saveSetup() {
 // ==============================
 // SCREEN: STORE SELECTION
 // ==============================
+/** Skeleton in the shape of the counting list, shown while data loads. */
+function loadingScreenHtml() {
+  const widths = ['long', 'mid', 'short', 'mid', 'long', 'short', 'mid', 'long', 'short'];
+  const rows = widths.map(w => `
+        <div class="skeleton-row">
+          <div class="skeleton-col">
+            <div class="sk sk-line ${w}"></div>
+            <div class="sk sk-line short"></div>
+          </div>
+          <div class="sk sk-box"></div>
+        </div>`).join('');
+  return `
+    <div class="screen loading-screen" role="status" aria-label="Φόρτωση δεδομένων">
+      <div class="skeleton-header">
+        <div class="sk sk-avatar"></div>
+        <div class="skeleton-col">
+          <div class="sk sk-line short"></div>
+          <div class="sk sk-line mid"></div>
+        </div>
+      </div>
+      <div class="skeleton-tabs">
+        <div class="sk sk-pill"></div>
+        <div class="sk sk-pill"></div>
+        <div class="sk sk-pill"></div>
+      </div>
+      <div class="skeleton-list">${rows}</div>
+    </div>`;
+}
+
 function renderStoreScreen() {
+  resetScreenScroll();
   rememberView('stores');
   const saved = localStorage.getItem(DATE_KEY) || todayISO();
   document.getElementById('app').innerHTML = `
     <div class="screen store-screen">
-      <div class="theme-corner">${themeToggleHtml()}</div>
       <div class="store-card">
+        <div class="theme-corner">${themeToggleHtml()}</div>
         <div class="logo">
           <div class="logo-icon">J</div>
-          <h1>JOIN Απογραφή</h1>
-          <p class="subtitle">Επιλογή Καταστήματος</p>
+          <div class="logo-text">
+            <h1>JOIN Απογραφή</h1>
+            <p class="subtitle">Επιλογή καταστήματος</p>
+          </div>
         </div>
         <div class="form-group date-group">
-          <label>Ημερομηνία Απογραφής</label>
+          <label for="count-date">Ημερομηνία απογραφής</label>
           <input type="date" id="count-date" value="${saved}">
         </div>
-        <div class="store-grid">
+        <div class="store-list">
           ${[1,2,3,4,5].map(n => `
             <button class="store-btn" onclick="selectStore(${n})">
-              <span class="store-emoji">🏪</span>
-              <span class="store-label">${STORE_NAMES[n]}</span>
+              <span class="store-mono">${h(STORE_NAMES[n].charAt(0))}</span>
+              <span class="store-label">${h(STORE_NAMES[n])}</span>
+              ${icon('caret-right', 'ic-sm')}
             </button>`).join('')}
         </div>
-        <button class="btn-secondary small" onclick="renderSetupScreen()">⚙ Ρυθμίσεις Supabase</button>
+        <button class="btn-secondary small" onclick="renderSetupScreen()">${icon('sliders-horizontal', 'ic-sm')}<span>Ρυθμίσεις Supabase</span></button>
       </div>
     </div>`;
 }
@@ -912,11 +989,11 @@ function showStoreCodeModal(n, date) {
   modal.innerHTML = `
     <div class="modal-card">
       <h2>${STORE_NAMES[n]}</h2>
-      <p style="text-align:center;font-size:13px;color:var(--text-secondary);margin-bottom:4px">Εισάγετε κωδικό καταστήματος</p>
+      <p class="modal-sub">Εισάγετε τον κωδικό του καταστήματος</p>
       <div class="pin-inputs">
         ${[0,1,2,3].map(i => `<input type="password" class="pin-digit store-code-d" id="scd${i}" maxlength="1" inputmode="numeric" pattern="[0-9]">`).join('')}
       </div>
-      <div id="store-code-err" class="error-msg" style="text-align:center"></div>
+      <div id="store-code-err" class="error-msg center"></div>
       <div class="modal-actions">
         <button class="btn-secondary" onclick="document.getElementById('store-code-modal').remove()">Ακύρωση</button>
         <button class="btn-primary" onclick="submitStoreCode(${n},'${date}')">Είσοδος</button>
@@ -965,11 +1042,7 @@ async function enterStore(n, date) {
   // skippedItems is now loaded from Supabase inside loadData()
   localStorage.setItem(STORE_KEY, n);
   localStorage.setItem(DATE_KEY, date);
-  document.getElementById('app').innerHTML = `
-    <div class="screen loading-screen">
-      <div class="spinner"></div>
-      <p>Φόρτωση δεδομένων...</p>
-    </div>`;
+  document.getElementById('app').innerHTML = loadingScreenHtml();
   const ok = await loadData();
   if (ok) { renderCountingScreen(); subscribeToChanges(); }
   else { showToast('Σφάλμα φόρτωσης', 'error'); renderStoreScreen(); }
@@ -979,29 +1052,39 @@ async function enterStore(n, date) {
 // SCREEN: COUNTING
 // ==============================
 function renderCountingScreen() {
+  resetScreenScroll();
   rememberView('counting');
+  const { counted, total, pct } = countedProgress();
   document.getElementById('app').innerHTML = `
     <div class="screen counting-screen">
       <header class="app-header">
         <div class="header-left">
-          <button class="back-btn" onclick="goBack()" title="Αλλαγή">←</button>
+          <button class="back-btn" onclick="goBack()" title="Αλλαγή καταστήματος" aria-label="Αλλαγή καταστήματος">${icon('caret-left')}</button>
           <div class="header-title">
-            <strong>${STORE_NAMES[storeId]}</strong>
-            <span class="header-date">${formatDate(countDate)}</span>
+            <strong>${h(STORE_NAMES[storeId])}</strong>
+            <span class="header-date">${icon('calendar-blank')}${formatDate(countDate)}</span>
           </div>
         </div>
         <div class="header-right">
-          ${themeToggleHtml()}
           <span id="conn-dot" class="conn-dot disconnected" title="Αποσυνδεδεμένο"></span>
-          <button class="icon-btn" onclick="openAdminPin()" title="Ρυθμίσεις διαχειριστή">⚙</button>
+          ${themeToggleHtml()}
+          <button class="icon-btn" onclick="openAdminPin()" title="Ρυθμίσεις διαχειριστή" aria-label="Ρυθμίσεις διαχειριστή">${icon('gear')}</button>
+        </div>
+        <div class="progress-track" role="progressbar" aria-label="Πρόοδος απογραφής"
+          aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}">
+          <div class="progress-fill" id="progress-fill" style="width:${pct}%"></div>
         </div>
       </header>
 
       <div class="search-bar-wrap">
-        <input type="search" id="search-input" class="search-input"
-          placeholder="🔍 Αναζήτηση είδους..."
-          oninput="onSearch(this.value)"
-          value="${h(searchQuery)}">
+        <div class="search-field">
+          ${icon('magnifying-glass', 'ic-sm')}
+          <input type="search" id="search-input" class="search-input"
+            placeholder="Αναζήτηση είδους"
+            aria-label="Αναζήτηση είδους"
+            oninput="onSearch(this.value)"
+            value="${h(searchQuery)}">
+        </div>
       </div>
 
       <div class="tabs-wrap" id="tabs-wrap"${searchQuery ? ' style="display:none"' : ''}>${buildTabs()}</div>
@@ -1009,14 +1092,16 @@ function renderCountingScreen() {
       <div class="items-container" id="items-container">${buildItemsList()}</div>
 
       <div class="bottom-bar">
-        <span class="total-info" id="total-info">${totalCountedText()}</span>
-        <button class="btn-export" id="export-btn" onclick="exportToExcel()">📥 Εξαγωγή Excel</button>
+        <span class="total-info">
+          <span class="stat-value" id="total-info">${counted} / ${total}</span>
+          <span>μετρήθηκαν</span>
+        </span>
+        <button class="btn-export" id="export-btn" onclick="exportToExcel()">${icon('download-simple', 'ic-sm')}<span>Εξαγωγή Excel</span></button>
       </div>
     </div>`;
 
   // Scroll active tab into view
-  const activeTab = document.querySelector('.tab-btn.active');
-  if (activeTab) activeTab.scrollIntoView({behavior:'instant', block:'nearest', inline:'center'});
+  revealActiveTab();
 }
 
 function buildTabs() {
@@ -1033,6 +1118,18 @@ function buildTabs() {
 
 function normalizeSearch(value) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/ς/g, 'σ').trim();
+}
+
+/** Label for the "Δεν μετριέται" control. Used by both render and live updates. */
+function skipBtnHtml(active) {
+  return `${icon(active ? 'check-circle' : 'prohibit', 'ic-sm')}<span>Δεν μετριέται</span>`;
+}
+
+function setSkipBtnState(btn, active) {
+  if (!btn) return;
+  btn.classList.toggle('active', active);
+  btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  btn.innerHTML = skipBtnHtml(active);
 }
 
 function buildItemsList() {
@@ -1056,7 +1153,12 @@ function buildItemsList() {
     list = ITEMS.filter(i => i.category === activeCategory);
   }
 
-  if (!list.length) return '<div class="empty-state">Δεν βρέθηκαν είδη</div>';
+  if (!list.length) return `
+    <div class="empty-state">
+      ${icon('magnifying-glass', 'ic-lg')}
+      <strong>Δεν βρέθηκαν είδη</strong>
+      <span>Δοκιμάστε άλλη λέξη ή τον κωδικό του είδους.</span>
+    </div>`;
 
   let html = '';
   let lastCat = null;
@@ -1116,7 +1218,7 @@ function buildGroupRow(primaryRow) {
         const slotLabel = num_inputs > 1 ? `<span class="slot-label">Θ${slot + 1}</span>` : '';
         const netDisplay = isTare ? `
           <div class="net-display ${netVal !== undefined ? '' : 'empty'}" id="net-${section.row}-${slot}">
-            ${netVal !== undefined ? `<span class="net-value">${netVal.toFixed(3)}</span><span class="net-unit">kg</span>` : `<span class="net-value placeholder">—</span>`}
+            ${netVal !== undefined ? `<span class="net-value">${netVal.toFixed(3)}</span><span class="net-unit">kg</span>` : `<span class="net-value placeholder">-</span>`}
           </div>` : '';
         return `
           <div class="item-slot">
@@ -1138,8 +1240,8 @@ function buildGroupRow(primaryRow) {
       const totalKilo = counts[section.row];
       const totalBar = num_inputs > 1 ? `
         <div class="item-total-bar">
-          <span>📊 Σύνολο:</span>
-          <span class="total-value" id="total-${section.row}">${totalKilo !== undefined ? totalKilo.toFixed(3) : '—'}</span>
+          <span>Σύνολο</span>
+          <span class="total-value" id="total-${section.row}">${totalKilo !== undefined ? totalKilo.toFixed(3) : '-'}</span>
           <span>kg</span>
         </div>` : '';
 
@@ -1158,10 +1260,8 @@ function buildGroupRow(primaryRow) {
       const displayVal = net !== undefined ? (net % 1 === 0 ? String(net) : parseFloat(net.toFixed(3)).toString()) : '';
       return `
         <div class="slot-group">
-          <div class="slot-group-header">
-            <span class="slot-group-label">${h(section.label)}</span>
-          </div>
           <div class="item-slot">
+            <span class="slot-label">${h(section.label)}</span>
             <div class="item-input-wrap slot-input-wrap">
               <div class="input-group">
                 <input type="number" class="qty-input" data-row="${section.row}" data-slot="0"
@@ -1187,7 +1287,7 @@ function buildGroupRow(primaryRow) {
         ${sectionsHtml}
       </div>
       <div class="skip-row">
-        <button id="skip-btn-group-${primaryRow}" class="skip-btn${isSkipped ? ' active' : ''}" onclick="toggleGroupSkip(${primaryRow})">${isSkipped ? '✓ Δεν μετριέται' : 'Δεν μετριέται'}</button>
+        <button id="skip-btn-group-${primaryRow}" class="skip-btn${isSkipped ? ' active' : ''}" onclick="toggleGroupSkip(${primaryRow})" aria-pressed="${isSkipped}">${skipBtnHtml(isSkipped)}</button>
       </div>
     </div>`;
 }
@@ -1238,13 +1338,13 @@ function buildItemRow(item) {
             </div>
           </div>
           <div class="item-total-bar">
-            <span>📊 Σύνολο:</span>
-            <span class="total-value" id="total-${item.row}">${tot > 0 ? String(tot) : '—'}</span>
+            <span>Σύνολο</span>
+            <span class="total-value" id="total-${item.row}">${tot > 0 ? String(tot) : '-'}</span>
             <span>ΤΜΧ</span>
           </div>
         </div>
         <div class="skip-row">
-          <button id="skip-btn-${item.row}" class="skip-btn${skippedItems.has(item.row) ? ' active' : ''}" onclick="toggleSkip(${item.row})">${skippedItems.has(item.row) ? '✓ Δεν μετριέται' : 'Δεν μετριέται'}</button>
+          <button id="skip-btn-${item.row}" class="skip-btn${skippedItems.has(item.row) ? ' active' : ''}" onclick="toggleSkip(${item.row})" aria-pressed="${skippedItems.has(item.row)}">${skipBtnHtml(skippedItems.has(item.row))}</button>
         </div>
       </div>`;
   }
@@ -1285,8 +1385,8 @@ function buildItemRow(item) {
 
     const totalBar = num_inputs > 1 ? `
       <div class="item-total-bar">
-        <span>📊 Σύνολο:</span>
-        <span class="total-value" id="total-${item.row}">${total !== undefined ? fmtQty(item, total) : '—'}</span>
+        <span>Σύνολο</span>
+        <span class="total-value" id="total-${item.row}">${total !== undefined ? fmtQty(item, total) : '-'}</span>
         <span>${h(item.unit)}</span>
       </div>` : '';
 
@@ -1304,7 +1404,7 @@ function buildItemRow(item) {
           ${totalBar}
         </div>
         <div class="skip-row">
-          <button id="skip-btn-${item.row}" class="skip-btn${skippedItems.has(item.row) ? ' active' : ''}" onclick="toggleSkip(${item.row})">${skippedItems.has(item.row) ? '✓ Δεν μετριέται' : 'Δεν μετριέται'}</button>
+          <button id="skip-btn-${item.row}" class="skip-btn${skippedItems.has(item.row) ? ' active' : ''}" onclick="toggleSkip(${item.row})" aria-pressed="${skippedItems.has(item.row)}">${skipBtnHtml(skippedItems.has(item.row))}</button>
         </div>
       </div>`;
   }
@@ -1337,10 +1437,12 @@ function buildItemRow(item) {
         const isTare = !!slotCw;
         const netVal = slots[slot];
         const dispVal = isTare && netVal !== undefined ? (netVal + slotCw).toFixed(3) : (netVal !== undefined ? netVal.toFixed(3) : '');
-        const slotLabel = (group.configurable && num_inputs > 1) ? `<span class="slot-label">Θ${slot + 1}</span>` : '';
+        const slotLabel = group.configurable
+          ? (num_inputs > 1 ? `<span class="slot-label">Θ${slot + 1}</span>` : '')
+          : `<span class="slot-label">${h(group.label)}</span>`;
         const netDisplay = isTare ? `
           <div class="net-display ${netVal !== undefined ? '' : 'empty'}" id="net-${item.row}-${slot}">
-            ${netVal !== undefined ? `<span class="net-value">${netVal.toFixed(3)}</span><span class="net-unit">kg</span>` : `<span class="net-value placeholder">—</span>`}
+            ${netVal !== undefined ? `<span class="net-value">${netVal.toFixed(3)}</span><span class="net-unit">kg</span>` : `<span class="net-value placeholder">-</span>`}
           </div>` : '';
         return `
           <div class="item-slot">
@@ -1359,12 +1461,14 @@ function buildItemRow(item) {
           </div>`;
       }).join('');
 
+      const groupHeader = group.configurable ? `
+          <div class="slot-group-header">
+            <span class="slot-group-label">${h(group.label)}</span>
+            ${cfgHtml}
+          </div>` : '';
       return `
         <div class="slot-group">
-          <div class="slot-group-header">
-            <span class="slot-group-label">${group.label}</span>
-            ${cfgHtml}
-          </div>
+          ${groupHeader}
           ${slotsHtml}
         </div>`;
     }).join('');
@@ -1380,13 +1484,13 @@ function buildItemRow(item) {
         <div class="item-slots">
           ${groupsHtml}
           <div class="item-total-bar">
-            <span>📊 Σύνολο:</span>
-            <span class="total-value" id="total-${item.row}">${displayTotal !== undefined ? displayTotal.toFixed(3) : '—'}</span>
+            <span>Σύνολο</span>
+            <span class="total-value" id="total-${item.row}">${displayTotal !== undefined ? displayTotal.toFixed(3) : '-'}</span>
             <span>kg</span>
           </div>
         </div>
         <div class="skip-row">
-          <button id="skip-btn-${item.row}" class="skip-btn${skippedItems.has(item.row) ? ' active' : ''}" onclick="toggleSkip(${item.row})">${skippedItems.has(item.row) ? '✓ Δεν μετριέται' : 'Δεν μετριέται'}</button>
+          <button id="skip-btn-${item.row}" class="skip-btn${skippedItems.has(item.row) ? ' active' : ''}" onclick="toggleSkip(${item.row})" aria-pressed="${skippedItems.has(item.row)}">${skipBtnHtml(skippedItems.has(item.row))}</button>
         </div>
       </div>`;
   }
@@ -1410,7 +1514,7 @@ function buildItemRow(item) {
       <div class="net-display ${netVal !== undefined ? '' : 'empty'}" id="net-${item.row}-${slot}">
         ${netVal !== undefined
           ? `<span class="net-value">${netVal.toFixed(3)}</span><span class="net-unit">kg</span>`
-          : `<span class="net-value placeholder">—</span>`}
+          : `<span class="net-value placeholder">-</span>`}
       </div>` : '';
 
     return `
@@ -1433,8 +1537,8 @@ function buildItemRow(item) {
 
   const totalBar = num_inputs > 1 ? `
     <div class="item-total-bar">
-      <span>📊 Σύνολο:</span>
-      <span class="total-value" id="total-${item.row}">${total !== undefined ? total.toFixed(3) : '—'}</span>
+      <span>Σύνολο</span>
+      <span class="total-value" id="total-${item.row}">${total !== undefined ? total.toFixed(3) : '-'}</span>
       <span>kg</span>
     </div>` : '';
 
@@ -1470,7 +1574,7 @@ function buildItemRow(item) {
         ${totalBar}
       </div>
       <div class="skip-row">
-        <button id="skip-btn-${item.row}" class="skip-btn${skippedItems.has(item.row) ? ' active' : ''}" onclick="toggleSkip(${item.row})">${skippedItems.has(item.row) ? '✓ Δεν μετριέται' : 'Δεν μετριέται'}</button>
+        <button id="skip-btn-${item.row}" class="skip-btn${skippedItems.has(item.row) ? ' active' : ''}" onclick="toggleSkip(${item.row})" aria-pressed="${skippedItems.has(item.row)}">${skipBtnHtml(skippedItems.has(item.row))}</button>
       </div>
     </div>`;
 }
@@ -1487,8 +1591,7 @@ function switchTab(cat) {
   if (ic) ic.innerHTML = buildItemsList();
   const tabsWrap = document.getElementById('tabs-wrap');
   if (tabsWrap) tabsWrap.style.display = '';
-  const activeTab = document.querySelector('.tab-btn.active');
-  if (activeTab) activeTab.scrollIntoView({behavior:'smooth', block:'nearest', inline:'center'});
+  revealActiveTab('smooth');
 }
 
 function onSearch(q) {
@@ -1500,16 +1603,23 @@ function onSearch(q) {
   if (tw) tw.style.display = searchQuery ? 'none' : '';
 }
 
-function totalCountedText() {
-  const n = ITEMS.filter(i => counts[i.row] !== undefined || skippedItems.has(i.row)).length;
-  return `${n} / ${ITEMS.length} μετρήθηκαν`;
+function countedProgress() {
+  const counted = ITEMS.filter(i => counts[i.row] !== undefined || skippedItems.has(i.row)).length;
+  const total = ITEMS.length;
+  return { counted, total, pct: total ? Math.round((counted / total) * 100) : 0 };
 }
 
 function refreshTabBadges() {
   const tw = document.getElementById('tabs-wrap');
   if (tw && !searchQuery) tw.innerHTML = buildTabs();
+  const { counted, total, pct } = countedProgress();
   const ti = document.getElementById('total-info');
-  if (ti) ti.textContent = totalCountedText();
+  if (ti) ti.textContent = `${counted} / ${total}`;
+  const fill = document.getElementById('progress-fill');
+  if (fill) {
+    fill.style.width = `${pct}%`;
+    if (fill.parentElement) fill.parentElement.setAttribute('aria-valuenow', String(pct));
+  }
 }
 
 // ==============================
@@ -1537,7 +1647,7 @@ function onSlotInput(itemRow, slot, raw) {
     else counts[itemRow] = total;
 
     const totalEl = document.getElementById(`total-${itemRow}`);
-    if (totalEl) totalEl.textContent = hasEntry && total > 0 ? String(total) : '—';
+    if (totalEl) totalEl.textContent = hasEntry && total > 0 ? String(total) : '-';
     const rowEl = document.getElementById(`item-row-${itemRow}`);
     if (rowEl) rowEl.classList.toggle('filled', total > 0 && hasEntry);
 
@@ -1581,7 +1691,7 @@ function onSlotInput(itemRow, slot, raw) {
         netEl.innerHTML = `<span class="net-value">${netVal.toFixed(3)}</span><span class="net-unit">kg</span>`;
       } else {
         netEl.classList.add('empty');
-        netEl.innerHTML = `<span class="net-value placeholder">—</span>`;
+        netEl.innerHTML = `<span class="net-value placeholder">-</span>`;
       }
     }
   }
@@ -1606,7 +1716,7 @@ function onSlotInput(itemRow, slot, raw) {
 
   // Update total display
   const totalEl = document.getElementById(`total-${itemRow}`);
-  if (totalEl) totalEl.textContent = hasAny ? fmtQty(item, total) : '—';
+  if (totalEl) totalEl.textContent = hasAny ? fmtQty(item, total) : '-';
 
   // Update filled state
   const rowEl = getItemRowEl(itemRow);
@@ -1722,11 +1832,11 @@ function openAdminPin() {
   modal.innerHTML = `
     <div class="modal-card">
       <h2>Κωδικός Διαχειριστή</h2>
-      ${isFirstTime ? '<p class="info-msg">Πρώτη φορά; Χρησιμοποιήστε τον κωδικό <strong>1234</strong></p>' : ''}
+      ${isFirstTime ? `<p class="modal-sub">Πρώτη φορά; Χρησιμοποιήστε τον κωδικό <strong>1234</strong></p>` : ''}
       <div class="pin-inputs" id="pin-inputs">
         ${[0,1,2,3].map(i => `<input type="password" class="pin-digit" id="pd${i}" maxlength="1" inputmode="numeric" pattern="[0-9]">`).join('')}
       </div>
-      <div id="pin-error" class="error-msg" style="text-align:center"></div>
+      <div id="pin-error" class="error-msg center"></div>
       <div class="modal-actions">
         <button class="btn-secondary" onclick="document.getElementById('pin-modal').remove()">Ακύρωση</button>
         <button class="btn-primary" onclick="submitAdminPin()">Είσοδος</button>
@@ -1776,8 +1886,7 @@ function buildCodesSection() {
           </div>
           <div class="admin-input-wrap">
             <input type="password" class="store-code-input" data-key="store_${n}"
-              placeholder="——" maxlength="4" inputmode="numeric" pattern="[0-9]{4}"
-              style="width:64px;text-align:center">
+              placeholder="••••" maxlength="4" inputmode="numeric" pattern="[0-9]{4}">
           </div>
         </div>`).join('')
     : `
@@ -1788,8 +1897,7 @@ function buildCodesSection() {
           </div>
           <div class="admin-input-wrap">
             <input type="password" class="store-code-input" data-key="store_${storeId}"
-              placeholder="——" maxlength="4" inputmode="numeric" pattern="[0-9]{4}"
-              style="width:64px;text-align:center">
+              placeholder="••••" maxlength="4" inputmode="numeric" pattern="[0-9]{4}">
           </div>
         </div>`;
 
@@ -1800,21 +1908,22 @@ function buildCodesSection() {
           </div>
           <div class="admin-input-wrap">
             <input type="password" class="store-code-input" data-key="master"
-              placeholder="——" maxlength="4" inputmode="numeric" pattern="[0-9]{4}"
-              style="width:64px;text-align:center">
+              placeholder="••••" maxlength="4" inputmode="numeric" pattern="[0-9]{4}">
           </div>
         </div>` : '';
 
   return `
     <div class="admin-section">
-      <h3 class="admin-cat-title">🔐 Κωδικοί Πρόσβασης</h3>
-      <p style="font-size:13px;color:var(--text-secondary);margin:0 0 12px">Εισάγετε νέο 4-ψήφιο κωδικό για να τον αλλάξετε. Αφήστε κενό για να διατηρήσετε τον τρέχοντα.</p>
-      ${storeRows}
-      ${masterRow}
-      <div class="admin-actions" style="margin-top:12px">
-        <button class="btn-primary" onclick="saveStoreCodes()">💾 Αποθήκευση Κωδικών</button>
+      <h3 class="admin-cat-title">${icon('lock-key', 'ic-sm')}<span>Κωδικοί πρόσβασης</span></h3>
+      <p class="field-hint" style="margin:0 2px 10px">Εισάγετε νέο 4-ψήφιο κωδικό για να τον αλλάξετε. Αφήστε κενό για να διατηρήσετε τον τρέχοντα.</p>
+      <div class="admin-card">
+        ${storeRows}
+        ${masterRow}
       </div>
-      <div id="codes-msg" class="success-msg" style="text-align:center"></div>
+      <div class="admin-actions">
+        <button class="btn-primary" onclick="saveStoreCodes()">${icon('floppy-disk', 'ic-sm')}<span>Αποθήκευση κωδικών</span></button>
+      </div>
+      <div id="codes-msg" class="success-msg center"></div>
     </div>`;
 }
 
@@ -1874,7 +1983,7 @@ function onAdminWeightInput(inputEl) {
   const rowEl = inputEl.closest('.admin-item-row');
   const warn = rowEl && rowEl.nextElementSibling;
   if (warn && warn.classList.contains('admin-field-warn')) {
-    warn.style.display = changed ? 'block' : 'none';
+    warn.style.display = changed ? '' : 'none';
   }
 
   adminDirty = Array.from(document.querySelectorAll('.admin-weight-input'))
@@ -1892,7 +2001,7 @@ function goBackFromAdmin() {
   modal.innerHTML = `
     <div class="modal-card">
       <h2>Μη αποθηκευμένες αλλαγές</h2>
-      <p style="text-align:center;color:var(--text-secondary);margin:8px 0 16px">Έχεις αλλαγές που δεν αποθηκεύτηκαν. Θες να φύγεις χωρίς αποθήκευση;</p>
+      <p class="modal-sub">Έχεις αλλαγές που δεν αποθηκεύτηκαν. Θες να φύγεις χωρίς αποθήκευση;</p>
       <div class="modal-actions">
         <button class="btn-secondary" onclick="document.getElementById('admin-back-modal').remove()">Παραμονή</button>
         <button class="btn-danger" onclick="discardAdminChanges()">Έξοδος χωρίς αποθήκευση</button>
@@ -1902,6 +2011,7 @@ function goBackFromAdmin() {
 }
 
 function renderAdminScreen() {
+  resetScreenScroll();
   rememberView('admin');
   adminDirty = false;
   const kiloItems = ITEMS.filter(isKilo);
@@ -1912,6 +2022,7 @@ function renderAdminScreen() {
     return `
       <div class="admin-section">
         <h3 class="admin-cat-title">${CAT_LABELS[cat]}</h3>
+        <div class="admin-card">
         ${items.map(item => {
           const groups = SLOT_GROUPS[item.row];
           if (groups) {
@@ -1932,13 +2043,13 @@ function renderAdminScreen() {
                     </div>
                     <div class="admin-input-wrap">
                       <input type="number" class="admin-weight-input"
-                        data-row="${slotKey}" placeholder="—"
+                        data-row="${slotKey}" placeholder="-"
                         value="${cwVal}" min="0" step="0.001" inputmode="decimal"
                         oninput="onAdminWeightInput(this)">
                       <span class="unit-label">kg</span>
                     </div>
                   </div>
-                  <div class="admin-field-warn" style="display:none">⚠️ Μην ξεχάσεις να κάνεις αποθήκευση!</div>`;
+                  <div class="admin-field-warn" style="display:none">${icon('warning', 'ic-sm')}<span>Μην ξεχάσεις να κάνεις αποθήκευση!</span></div>`;
               }).join('');
             }).join('');
           }
@@ -1955,13 +2066,13 @@ function renderAdminScreen() {
                   </div>
                   <div class="admin-input-wrap">
                     <input type="number" class="admin-weight-input"
-                      data-row="${slotKey}" placeholder="—"
+                      data-row="${slotKey}" placeholder="-"
                       value="${cwVal}" min="0" step="0.001" inputmode="decimal"
                       oninput="onAdminWeightInput(this)">
                     <span class="unit-label">kg</span>
                   </div>
                 </div>
-                <div class="admin-field-warn" style="display:none">⚠️ Μην ξεχάσεις να κάνεις αποθήκευση!</div>`;
+                <div class="admin-field-warn" style="display:none">${icon('warning', 'ic-sm')}<span>Μην ξεχάσεις να κάνεις αποθήκευση!</span></div>`;
             }).join('');
           }
           const cwVal = containerWeights[item.row] !== undefined ? containerWeights[item.row] : '';
@@ -1973,14 +2084,15 @@ function renderAdminScreen() {
               </div>
               <div class="admin-input-wrap">
                 <input type="number" class="admin-weight-input"
-                  data-row="${item.row}" placeholder="—"
+                  data-row="${item.row}" placeholder="-"
                   value="${cwVal}" min="0" step="0.001" inputmode="decimal"
                   oninput="onAdminWeightInput(this)">
                 <span class="unit-label">kg</span>
               </div>
             </div>
-            <div class="admin-field-warn" style="display:none">⚠️ Μην ξεχάσεις να κάνεις αποθήκευση!</div>`;
+            <div class="admin-field-warn" style="display:none">${icon('warning', 'ic-sm')}<span>Μην ξεχάσεις να κάνεις αποθήκευση!</span></div>`;
         }).join('')}
+        </div>
       </div>`;
   }).join('');
 
@@ -1988,26 +2100,27 @@ function renderAdminScreen() {
     <div class="screen admin-screen">
       <header class="app-header">
         <div class="header-left">
-          <button class="back-btn" onclick="goBackFromAdmin()">← Πίσω</button>
-          <div class="header-title"><strong>⚖️ Βάρη Δοχείων</strong></div>
+          <button class="back-btn with-label" onclick="goBackFromAdmin()">${icon('caret-left')}<span>Πίσω</span></button>
+          <div class="header-title"><strong>Βάρη δοχείων</strong></div>
         </div>
         <div class="header-right">${themeToggleHtml()}</div>
       </header>
       <div class="admin-content">
         <div class="admin-info">
+          ${icon('scales', 'ic-sm')}
           <p>Εισάγετε το βάρος του δοχείου/βάζου για κάθε είδος που μετράτε κατά βάρος. Αφήστε κενό για να μην αφαιρείται τίποτα.</p>
         </div>
         ${sections}
         <div class="admin-actions">
-          <button class="btn-secondary" onclick="openChangePinModal()">🔑 Αλλαγή PIN</button>
+          <button class="btn-secondary" onclick="openChangePinModal()">${icon('key', 'ic-sm')}<span>Αλλαγή PIN</span></button>
         </div>
-        <div id="admin-msg" class="success-msg" style="text-align:center"></div>
+        <div id="admin-msg" class="success-msg center"></div>
 
         ${buildCodesSection()}
       </div>
       <div class="admin-save-bar">
         <span id="admin-save-status" role="status"></span>
-        <button class="btn-primary" id="admin-save-btn" onclick="saveContainerWeights()">💾 Αποθήκευση</button>
+        <button class="btn-primary" id="admin-save-btn" onclick="saveContainerWeights()">${icon('floppy-disk', 'ic-sm')}<span>Αποθήκευση</span></button>
       </div>
     </div>`;
 
@@ -2063,7 +2176,7 @@ async function saveContainerWeights() {
     // Edits made while the request was in flight still need saving.
     inputs.forEach(inp => onAdminWeightInput(inp));
     const msg = document.getElementById('admin-msg');
-    if (msg) { msg.textContent = '✓ Αποθηκεύτηκε'; setTimeout(() => { if(msg) msg.textContent=''; }, 3000); }
+    if (msg) { msg.textContent = 'Αποθηκεύτηκε'; setTimeout(() => { if(msg) msg.textContent=''; }, 3000); }
     showToast('Αποθηκεύτηκε', 'success');
   } catch(e) {
     console.error(e);
@@ -2100,7 +2213,7 @@ async function saveStoreCodes() {
     upserts.forEach(u => { storeCodes[u.key] = u.code_hash; });
     inputs.forEach(i => { i.value = ''; });
     const msg = document.getElementById('codes-msg');
-    if (msg) { msg.textContent = '✓ Αποθηκεύτηκαν'; setTimeout(() => { if(msg) msg.textContent=''; }, 3000); }
+    if (msg) { msg.textContent = 'Αποθηκεύτηκαν'; setTimeout(() => { if(msg) msg.textContent=''; }, 3000); }
     showToast('Κωδικοί αποθηκεύτηκαν', 'success');
   } catch(e) {
     console.error(e);
@@ -2118,11 +2231,11 @@ function openChangePinModal() {
   modal.innerHTML = `
     <div class="modal-card">
       <h2>Νέο PIN</h2>
-      <p style="text-align:center;font-size:13px;color:var(--text-secondary);margin-bottom:4px">Εισάγετε 4-ψήφιο κωδικό</p>
+      <p class="modal-sub">Εισάγετε 4-ψήφιο κωδικό</p>
       <div class="pin-inputs">
         ${[0,1,2,3].map(i => `<input type="password" class="pin-digit new-pin-d" id="npd${i}" maxlength="1" inputmode="numeric" pattern="[0-9]">`).join('')}
       </div>
-      <div id="new-pin-err" class="error-msg" style="text-align:center"></div>
+      <div id="new-pin-err" class="error-msg center"></div>
       <div class="modal-actions">
         <button class="btn-secondary" onclick="document.getElementById('change-pin-modal').remove()">Ακύρωση</button>
         <button class="btn-primary" onclick="submitNewPin()">Αποθήκευση</button>
@@ -2161,7 +2274,7 @@ const TEMPLATE_B64 = 'UEsDBBQABgAIAAAAIQCeLGxvawEAABAFAAATAAgCW0NvbnRlbnRfVHlwZX
 
 async function exportToExcel() {
   const btn = document.getElementById('export-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Εξαγωγή...'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = `<span class="spinner"></span><span>Εξαγωγή...</span>`; }
 
   try {
     const wb = XLSX.read(TEMPLATE_B64, { type: 'base64' });
@@ -2183,7 +2296,7 @@ async function exportToExcel() {
     console.error('Export error:', e);
     showToast('Σφάλμα εξαγωγής', 'error');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '📥 Εξαγωγή Excel'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = `${icon('download-simple', 'ic-sm')}<span>Εξαγωγή Excel</span>`; }
   }
 }
 
@@ -2198,7 +2311,8 @@ document.addEventListener('focusin', e => {
   const input = e.target;
   // 300ms covers both iOS and Android keyboard animation
   setTimeout(() => {
-    input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (!input.isConnected || document.activeElement !== input) return;
+    input.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, 300);
 });
 
@@ -2223,11 +2337,7 @@ async function init() {
   activeCategory = CATEGORIES.includes(view.activeCategory) ? view.activeCategory : 'FOOD';
   searchQuery = typeof view.searchQuery === 'string' ? view.searchQuery : '';
 
-  document.getElementById('app').innerHTML = `
-    <div class="screen loading-screen">
-      <div class="spinner"></div>
-      <p>Φόρτωση δεδομένων...</p>
-    </div>`;
+  document.getElementById('app').innerHTML = loadingScreenHtml();
 
   const ok = await loadData();
   if (ok) {

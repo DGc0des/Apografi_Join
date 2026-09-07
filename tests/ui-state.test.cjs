@@ -11,7 +11,8 @@ function harness() {
   const inputs = [2,3].map(row => ({ dataset: { row: String(row) }, value: '', closest: () => null }));
   const elements = { app: {innerHTML:''}, 'admin-save-status': {}, 'admin-save-btn': {}, 'admin-back-modal': {remove(){}} };
   const context = vm.createContext({
-    window: {addEventListener: (name, fn) => events[name] = fn},
+    window: {addEventListener: (name, fn) => events[name] = fn, scrollTo(){}},
+    requestAnimationFrame: fn => fn(),
     document: {body:{classList:{contains:()=>false}}, addEventListener(){}, getElementById: id => elements[id] || null,
       querySelectorAll: selector => selector === '.admin-weight-input' ? inputs : [], querySelector:()=>null},
     localStorage: {getItem:()=>null},
@@ -66,4 +67,23 @@ test('successful save clears draft, but retains edits made during a request', as
   h.inputs[0].value='0.5';h.run("onAdminWeightInput(document.querySelectorAll('.admin-weight-input')[0])");
   const saving=h.run('saveContainerWeights()');h.inputs[0].value='0.75';await saving;
   assert.equal(h.run('adminDirty'),true);assert.equal(JSON.parse(h.run('sessionStorage.getItem(adminDraftKey())'))[2],'0.75');
+});
+
+test('category reveal scrolls only the tab strip', () => {
+  const h=harness();
+  h.run(`let stripScroll;
+    const strip={scrollLeft:100,clientWidth:300,
+      getBoundingClientRect:()=>({left:10}),
+      querySelector:()=>({getBoundingClientRect:()=>({left:250,width:100})}),
+      scrollTo:options=>stripScroll=options};
+    document.getElementById=()=>strip;
+    window.scrollTo=()=>{throw new Error('Category selection must not scroll the page')};
+    revealActiveTab();`);
+  assert.equal(h.run('stripScroll.left'),240);
+});
+test('new screen resets page scroll after rendering', () => {
+  const h=harness();
+  h.run('let scroll; window.scrollTo=options=>scroll=options; resetScreenScroll()');
+  assert.equal(h.run('scroll.top'),0);
+  assert.equal(h.run('scroll.behavior'),'instant');
 });

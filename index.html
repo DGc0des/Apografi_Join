@@ -2,16 +2,26 @@
 <html lang="el">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="theme-color" content="#F0F4C3">
+  <meta name="theme-color" content="#f1efeb">
+  <meta name="description" content="Μηνιαία απογραφή για τα καταστήματα JOIN.">
   <title>JOIN Απογραφή</title>
+  <!-- Manrope carries the Greek UI, JetBrains Mono every number and item code.
+       Both are loaded from Google Fonts because this app ships as three static
+       files with no build step to self-host with. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <script>
     (function () {
+      // Disable native restoration before the asynchronous app startup changes layout.
+      if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
       try {
         var dm = localStorage.getItem('darkMode');
         var legacy = localStorage.getItem('join_theme');
@@ -27,7 +37,7 @@
         var dark = dm === 'true';
         if (dark) document.body.classList.add('dark-mode');
         var meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.content = dark ? '#000000' : '#F0F4C3';
+        if (meta) meta.content = dark ? '#121110' : '#f1efeb';
       } catch (e) {}
     })();
   </script>
