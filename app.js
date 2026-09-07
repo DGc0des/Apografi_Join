@@ -307,6 +307,23 @@ let adminDirty          = false;
 let adminOriginalValues = {}; // { data-row: string } captured when admin screen opens
 let skippedItems   = new Set(); // item rows marked as "Δεν μετριέται"
 
+// Keep navigation in this tab; the last selected store is not the current screen.
+const VIEW_KEY = 'join_view';
+let currentScreen = 'stores';
+function rememberView(screen = currentScreen) {
+  currentScreen = screen;
+  try {
+    sessionStorage.setItem(VIEW_KEY, JSON.stringify({
+      screen, storeId, countDate, activeCategory, searchQuery
+    }));
+  } catch (_) { /* Navigation still works when browser storage is unavailable. */ }
+}
+
+function readView() {
+  try { return JSON.parse(sessionStorage.getItem(VIEW_KEY)) || {}; }
+  catch (_) { return {}; }
+}
+
 // ==============================
 // SLOT ENCODING HELPERS
 // ==============================
@@ -520,6 +537,11 @@ function themeToggleHtml() {
 
 function isKilo(item) {
   return item.unit.trim().toUpperCase() === 'ΚΙΛΟ';
+}
+
+function fmtQty(item, val) {
+  if (isKilo(item)) return val.toFixed(3);
+  return val % 1 === 0 ? String(val) : parseFloat(val.toFixed(3)).toString();
 }
 
 function isGroupFilled(primaryRow) {
@@ -738,7 +760,7 @@ function subscribeToChanges() {
         }
         if (!isAuraWaterPackRow(itemRow)) {
           const totalEl = document.getElementById(`total-${itemRow}`);
-          if (totalEl) totalEl.textContent = hasAny ? total.toFixed(3) : '—';
+          if (totalEl) totalEl.textContent = hasAny ? fmtQty(item, total) : '—';
           const rowEl = getItemRowEl(itemRow);
           const gp = ITEM_GROUP_BY_ROW[itemRow];
           if (rowEl) rowEl.classList.toggle('filled', gp !== undefined ? isGroupFilled(gp) : hasAny);
@@ -785,6 +807,7 @@ function processInput(item, raw) {
 // SCREEN: SETUP
 // ==============================
 function renderSetupScreen() {
+  rememberView('setup');
   document.getElementById('app').innerHTML = `
     <div class="screen setup-screen">
       <div class="theme-corner">${themeToggleHtml()}</div>
@@ -833,6 +856,7 @@ async function saveSetup() {
 // SCREEN: STORE SELECTION
 // ==============================
 function renderStoreScreen() {
+  rememberView('stores');
   const saved = localStorage.getItem(DATE_KEY) || todayISO();
   document.getElementById('app').innerHTML = `
     <div class="screen store-screen">
@@ -948,6 +972,7 @@ async function enterStore(n, date) {
 // SCREEN: COUNTING
 // ==============================
 function renderCountingScreen() {
+  rememberView('counting');
   document.getElementById('app').innerHTML = `
     <div class="screen counting-screen">
       <header class="app-header">
@@ -972,7 +997,7 @@ function renderCountingScreen() {
           value="${h(searchQuery)}">
       </div>
 
-      <div class="tabs-wrap" id="tabs-wrap">${buildTabs()}</div>
+      <div class="tabs-wrap" id="tabs-wrap"${searchQuery ? ' style="display:none"' : ''}>${buildTabs()}</div>
 
       <div class="items-container" id="items-container">${buildItemsList()}</div>
 
@@ -1214,23 +1239,58 @@ function buildItemRow(item) {
   }
 
   if (!isKilo(item)) {
-    const net = counts[item.row];
-    const displayVal = net !== undefined ? (net % 1 === 0 ? String(net) : parseFloat(net.toFixed(3)).toString()) : '';
+    const { num_inputs } = cfg;
+    const slots = slotValues[item.row] || [];
+    const total = counts[item.row];
+    const filled = total !== undefined && total > 0;
+
+    const numOpts = Array.from({length:10},(_,i)=>
+      `<option value="${i+1}"${num_inputs===i+1?' selected':''}>${i+1}</option>`).join('');
+    const cfgHtml = `
+      <div class="item-cfg-selects">
+        <div class="cfg-sel-wrap">
+          <span class="cfg-label">Θέσεις</span>
+          <select class="cfg-select" onchange="onItemCfgChange(${item.row},'num_inputs',this.value)">${numOpts}</select>
+        </div>
+      </div>`;
+
+    const slotsHtml = Array.from({ length: num_inputs }, (_, slot) => {
+      const val = slots[slot];
+      const displayVal = val !== undefined ? fmtQty(item, val) : '';
+      const slotLabel = num_inputs > 1 ? `<span class="slot-label">Θ${slot + 1}</span>` : '';
+      return `
+        <div class="item-slot">
+          ${slotLabel}
+          <div class="item-input-wrap slot-input-wrap">
+            <div class="input-group">
+              <input type="number" class="qty-input" data-row="${item.row}" data-slot="${slot}"
+                placeholder="0" value="${displayVal}" min="0" step="1" inputmode="numeric"
+                oninput="onSlotInput(${item.row}, ${slot}, this.value)">
+              <span class="unit-label">${h(item.unit)}</span>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    const totalBar = num_inputs > 1 ? `
+      <div class="item-total-bar">
+        <span>📊 Σύνολο:</span>
+        <span class="total-value" id="total-${item.row}">${total !== undefined ? fmtQty(item, total) : '—'}</span>
+        <span>${h(item.unit)}</span>
+      </div>` : '';
+
     return `
-      <div class="item-row ${net !== undefined ? 'filled' : ''}${skippedItems.has(item.row) ? ' skipped' : ''}" id="item-row-${item.row}">
+      <div class="item-row${filled ? ' filled' : ''}${num_inputs > 1 ? ' multi-slot' : ''}${skippedItems.has(item.row) ? ' skipped' : ''}" id="item-row-${item.row}">
         <div class="item-header-row">
           <div class="item-info">
             <span class="item-name">${h(item.name)}</span>
             ${item.code ? `<span class="item-code">${h(item.code)}</span>` : ''}
           </div>
-          <div class="item-input-wrap">
-            <div class="input-group">
-              <input type="number" class="qty-input" data-row="${item.row}" data-slot="0"
-                placeholder="0" value="${displayVal}" min="0" step="1" inputmode="numeric"
-                oninput="onSlotInput(${item.row}, 0, this.value)">
-              <span class="unit-label">${h(item.unit)}</span>
-            </div>
-          </div>
+          ${cfgHtml}
+        </div>
+        <div class="item-slots">
+          ${slotsHtml}
+          ${totalBar}
         </div>
         <div class="skip-row">
           <button id="skip-btn-${item.row}" class="skip-btn${skippedItems.has(item.row) ? ' active' : ''}" onclick="toggleSkip(${item.row})">${skippedItems.has(item.row) ? '✓ Δεν μετριέται' : 'Δεν μετριέται'}</button>
@@ -1407,6 +1467,7 @@ function buildItemRow(item) {
 function switchTab(cat) {
   activeCategory = cat;
   searchQuery = '';
+  rememberView();
   const si = document.getElementById('search-input');
   if (si) si.value = '';
   const tw = document.getElementById('tabs-wrap');
@@ -1421,6 +1482,7 @@ function switchTab(cat) {
 
 function onSearch(q) {
   searchQuery = q;
+  rememberView();
   const ic = document.getElementById('items-container');
   if (ic) ic.innerHTML = buildItemsList();
   const tw = document.getElementById('tabs-wrap');
@@ -1443,6 +1505,7 @@ function refreshTabBadges() {
 // ITEM INPUT
 // ==============================
 function onSlotInput(itemRow, slot, raw) {
+  if (typeof raw === 'string') raw = raw.replace(',', '.');
   const item = ITEM_MAP[itemRow];
   if (!item) return;
 
@@ -1532,7 +1595,7 @@ function onSlotInput(itemRow, slot, raw) {
 
   // Update total display
   const totalEl = document.getElementById(`total-${itemRow}`);
-  if (totalEl) totalEl.textContent = hasAny ? total.toFixed(3) : '—';
+  if (totalEl) totalEl.textContent = hasAny ? fmtQty(item, total) : '—';
 
   // Update filled state
   const rowEl = getItemRowEl(itemRow);
@@ -1786,6 +1849,7 @@ function goBackFromAdmin() {
 }
 
 function renderAdminScreen() {
+  rememberView('admin');
   adminDirty = false;
   const kiloItems = ITEMS.filter(isKilo);
 
@@ -2069,14 +2133,22 @@ document.addEventListener('focusin', e => {
 // INIT
 // ==============================
 async function init() {
+  const view = readView();
+  if (view.screen === 'setup') { renderSetupScreen(); return; }
   if (!initSupabase()) { renderSetupScreen(); return; }
 
-  const savedStore = localStorage.getItem(STORE_KEY);
-  const savedDate  = localStorage.getItem(DATE_KEY);
-  if (!savedStore || !savedDate) { renderStoreScreen(); return; }
+  if (!['counting', 'admin'].includes(view.screen) ||
+      ![1, 2, 3, 4, 5].includes(view.storeId) ||
+      typeof view.countDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(view.countDate) ||
+      sessionStorage.getItem(`join_auth_${view.storeId}`) !== '1') {
+    renderStoreScreen();
+    return;
+  }
 
-  storeId   = parseInt(savedStore);
-  countDate = savedDate;
+  storeId   = view.storeId;
+  countDate = view.countDate;
+  activeCategory = CATEGORIES.includes(view.activeCategory) ? view.activeCategory : 'FOOD';
+  searchQuery = typeof view.searchQuery === 'string' ? view.searchQuery : '';
 
   document.getElementById('app').innerHTML = `
     <div class="screen loading-screen">
@@ -2085,9 +2157,21 @@ async function init() {
     </div>`;
 
   const ok = await loadData();
-  if (ok) { renderCountingScreen(); subscribeToChanges(); }
+  if (ok) {
+    if (view.screen === 'admin') renderAdminScreen();
+    else renderCountingScreen();
+    subscribeToChanges();
+  }
   else    { renderStoreScreen(); }
 }
+
+document.addEventListener('beforeinput', e => {
+  if (e.data !== ',') return;
+  const el = e.target;
+  if (el.tagName !== 'INPUT') return;
+  e.preventDefault();
+  document.execCommand('insertText', false, '.');
+}, true);
 
 initThemeFromStorage();
 init();
