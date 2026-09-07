@@ -247,6 +247,8 @@ const DARK_MODE_KEY   = 'darkMode';
 const LEGACY_THEME_KEY = 'join_theme';
 const PIN_KEY          = 'join_admin_pin';
 const DEFAULT_PIN      = '1234';
+/** Bump together with the ?v= query on app.js and styles.css in index.html. */
+const APP_VERSION      = '2026-09-08';
 const CATEGORIES       = ['FOOD','COFFEE','JUICES','ΑΝΑΛΩΣΙΜΑ','ΤΣΑΪ','ΣΥΣΚΕΥΑΣΙΕΣ'];
 const CAT_LABELS       = {'FOOD':'FOOD','COFFEE':'COFFEE','JUICES':'JUICES','ΑΝΑΛΩΣΙΜΑ':'ΑΝΑΛΩΣΙΜΑ','ΤΣΑΪ':'ΤΣΑΪ','ΣΥΣΚΕΥΑΣΙΕΣ':'ΣΥΣΚΕΥΑΣΙΕΣ'};
 const STORE_NAMES      = {1:'Cosmos', 2:'Πατρών', 3:'Λευκός', 4:'Ποσειδώνιο', 5:'OneSalica'};
@@ -1276,7 +1278,7 @@ function buildGroupRow(primaryRow) {
             <div class="item-input-wrap slot-input-wrap">
               <div class="input-group">
                 <input type="text" class="qty-input" data-row="${section.row}" data-slot="0" aria-label="${h(ITEM_MAP[section.row].name)} — Θέση ${(0) + 1}"
-                  placeholder="0" value="${displayVal}" inputmode="numeric"
+                  placeholder="0" value="${displayVal}" inputmode="decimal"
                   oninput="onSlotInput(${section.row}, 0, this.value)">
                 <span class="unit-label">${h(sItem.unit)}</span>
               </div>
@@ -1330,7 +1332,7 @@ function buildItemRow(item) {
             <div class="item-input-wrap slot-input-wrap">
               <div class="input-group">
                 <input type="text" class="qty-input" data-row="${item.row}" data-slot="0" aria-label="${h(ITEM_MAP[item.row].name)} — Θέση ${(0) + 1}"
-                  placeholder="0" value="${packsVal}" inputmode="numeric"
+                  placeholder="0" value="${packsVal}" inputmode="decimal"
                   oninput="onSlotInput(${item.row}, 0, this.value)">
                 <span class="unit-label">κιβ.</span>
               </div>
@@ -1341,7 +1343,7 @@ function buildItemRow(item) {
             <div class="item-input-wrap slot-input-wrap">
               <div class="input-group">
                 <input type="text" class="qty-input" data-row="${item.row}" data-slot="1" aria-label="${h(ITEM_MAP[item.row].name)} — Θέση ${(1) + 1}"
-                  placeholder="0" value="${looseVal}" inputmode="numeric"
+                  placeholder="0" value="${looseVal}" inputmode="decimal"
                   oninput="onSlotInput(${item.row}, 1, this.value)">
                 <span class="unit-label">ΤΜΧ</span>
               </div>
@@ -1385,7 +1387,7 @@ function buildItemRow(item) {
           <div class="item-input-wrap slot-input-wrap">
             <div class="input-group">
               <input type="text" class="qty-input" data-row="${item.row}" data-slot="${slot}" aria-label="${h(ITEM_MAP[item.row].name)} — Θέση ${(slot) + 1}"
-                placeholder="0" value="${displayVal}" inputmode="numeric"
+                placeholder="0" value="${displayVal}" inputmode="decimal"
                 oninput="onSlotInput(${item.row}, ${slot}, this.value)">
               <span class="unit-label">${h(item.unit)}</span>
             </div>
@@ -2159,6 +2161,7 @@ function renderAdminScreen() {
         <div id="admin-msg" class="success-msg center"></div>
 
         ${buildCodesSection()}
+        <p class="app-version">Έκδοση ${APP_VERSION}</p>
       </div>
       <div class="admin-save-bar">
         <span id="admin-save-status" role="status"></span>
