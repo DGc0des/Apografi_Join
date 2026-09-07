@@ -835,6 +835,29 @@ function getInputDisplayValue(item) {
   return net % 1 === 0 ? String(net) : parseFloat(net.toFixed(3)).toString();
 }
 
+/**
+ * Keeps a quantity field to a decimal number as it is typed.
+ * The comma from a Greek keyboard becomes a period, anything that is not a
+ * digit or a single decimal point is dropped, and the caret stays where the
+ * user was typing. Returns the cleaned value.
+ */
+function sanitizeNumericInput(el) {
+  const raw = el.value;
+  let out = raw.replace(/,/g, '.').replace(/[^0-9.]/g, '');
+  const firstDot = out.indexOf('.');
+  if (firstDot !== -1) {
+    out = out.slice(0, firstDot + 1) + out.slice(firstDot + 1).replace(/\./g, '');
+  }
+  if (out === raw) return out;
+  const caret = el.selectionStart;
+  el.value = out;
+  if (typeof caret === 'number' && el.setSelectionRange) {
+    const pos = Math.max(0, caret - (raw.length - out.length));
+    try { el.setSelectionRange(pos, pos); } catch (_) { /* field may not expose a caret */ }
+  }
+  return out;
+}
+
 function processInput(item, raw) {
   if (raw === '' || raw === null) return null;
   const val = parseFloat(raw);
@@ -856,7 +879,7 @@ function renderSetupScreen() {
   rememberView('setup');
   document.getElementById('app').innerHTML = `
     <div class="screen setup-screen">
-      <div class="setup-card">
+      <form class="setup-card" onsubmit="event.preventDefault(); saveSetup()">
         <div class="theme-corner">${themeToggleHtml()}</div>
         <div class="logo">
           <div class="logo-icon">J</div>
@@ -876,11 +899,11 @@ function renderSetupScreen() {
             value="${h(localStorage.getItem(SUPABASE_KEY_KEY) || '')}">
           <p class="field-hint">Αποθηκεύεται μόνο σε αυτή τη συσκευή.</p>
         </div>
-        <button class="btn-primary" onclick="saveSetup()">Αποθήκευση &amp; Συνέχεια</button>
+        <button type="submit" class="btn-primary">Αποθήκευση &amp; Συνέχεια</button>
         <div id="setup-error" class="error-msg"></div>
         ${sb || (localStorage.getItem(SUPABASE_URL_KEY) && localStorage.getItem(SUPABASE_KEY_KEY))
-          ? `<button class="btn-secondary" onclick="cancelSetup()">${icon('caret-left', 'ic-sm')}<span>Πίσω στα καταστήματα</span></button>` : ''}
-      </div>
+          ? `<button type="button" class="btn-secondary" onclick="cancelSetup()">${icon('caret-left', 'ic-sm')}<span>Πίσω στα καταστήματα</span></button>` : ''}
+      </form>
     </div>`;
 }
 
@@ -1000,18 +1023,7 @@ function showStoreCodeModal(n, date) {
       </div>
     </div>`;
   document.body.appendChild(modal);
-  const digits = modal.querySelectorAll('.store-code-d');
-  digits.forEach((d, i) => {
-    d.addEventListener('input', () => {
-      d.value = d.value.replace(/\D/g,'').slice(-1);
-      if (d.value && i < 3) digits[i+1].focus();
-      if (d.value && i === 3) submitStoreCode(n, date);
-    });
-    d.addEventListener('keydown', e => {
-      if (e.key === 'Backspace' && !d.value && i > 0) digits[i-1].focus();
-    });
-  });
-  digits[0].focus();
+  wirePinModal(modal, () => submitStoreCode(n, date));
 }
 
 async function submitStoreCode(n, date) {
@@ -1182,7 +1194,6 @@ function buildGroupRow(primaryRow) {
   const group = ITEM_GROUPS[primaryRow];
   const isSkipped = group.sections.some(s => skippedItems.has(s.row));
   const filled = isGroupFilled(primaryRow);
-  const step = '0.001';
   const mode = 'decimal';
 
   const sectionsHtml = group.sections.map(section => {
@@ -1225,10 +1236,10 @@ function buildGroupRow(primaryRow) {
             ${slotLabel}
             <div class="item-input-wrap slot-input-wrap">
               <div class="input-group">
-                <input type="number" class="qty-input${isTare ? ' gross-input' : ''}"
-                  data-row="${section.row}" data-slot="${slot}"
+                <input type="text" class="qty-input${isTare ? ' gross-input' : ''}"
+                  data-row="${section.row}" data-slot="${slot}" aria-label="${h(ITEM_MAP[section.row].name)} — Θέση ${(slot) + 1}"
                   placeholder="${isTare ? 'Μεικτό' : '0'}"
-                  value="${dispVal}" min="0" step="${step}" inputmode="${mode}"
+                  value="${dispVal}" inputmode="${mode}"
                   oninput="onSlotInput(${section.row}, ${slot}, this.value)">
                 <span class="unit-label">kg</span>
               </div>
@@ -1264,8 +1275,8 @@ function buildGroupRow(primaryRow) {
             <span class="slot-label">${h(section.label)}</span>
             <div class="item-input-wrap slot-input-wrap">
               <div class="input-group">
-                <input type="number" class="qty-input" data-row="${section.row}" data-slot="0"
-                  placeholder="0" value="${displayVal}" min="0" step="1" inputmode="numeric"
+                <input type="text" class="qty-input" data-row="${section.row}" data-slot="0" aria-label="${h(ITEM_MAP[section.row].name)} — Θέση ${(0) + 1}"
+                  placeholder="0" value="${displayVal}" inputmode="numeric"
                   oninput="onSlotInput(${section.row}, 0, this.value)">
                 <span class="unit-label">${h(sItem.unit)}</span>
               </div>
@@ -1297,7 +1308,6 @@ function buildItemRow(item) {
   const cw = containerWeights[item.row];
   const total = counts[item.row];
   const filled = total !== undefined && total > 0;
-  const step = '0.001';
   const mode = 'decimal';
 
   if (!isKilo(item) && isAuraWaterPackRow(item.row)) {
@@ -1319,8 +1329,8 @@ function buildItemRow(item) {
             <span class="slot-label">Κιβώτια ×${AURA_WATER_PACK_UNIT}</span>
             <div class="item-input-wrap slot-input-wrap">
               <div class="input-group">
-                <input type="number" class="qty-input" data-row="${item.row}" data-slot="0"
-                  placeholder="0" value="${packsVal}" min="0" step="1" inputmode="numeric"
+                <input type="text" class="qty-input" data-row="${item.row}" data-slot="0" aria-label="${h(ITEM_MAP[item.row].name)} — Θέση ${(0) + 1}"
+                  placeholder="0" value="${packsVal}" inputmode="numeric"
                   oninput="onSlotInput(${item.row}, 0, this.value)">
                 <span class="unit-label">κιβ.</span>
               </div>
@@ -1330,8 +1340,8 @@ function buildItemRow(item) {
             <span class="slot-label">Εκτός κιβωτίου</span>
             <div class="item-input-wrap slot-input-wrap">
               <div class="input-group">
-                <input type="number" class="qty-input" data-row="${item.row}" data-slot="1"
-                  placeholder="0" value="${looseVal}" min="0" step="1" inputmode="numeric"
+                <input type="text" class="qty-input" data-row="${item.row}" data-slot="1" aria-label="${h(ITEM_MAP[item.row].name)} — Θέση ${(1) + 1}"
+                  placeholder="0" value="${looseVal}" inputmode="numeric"
                   oninput="onSlotInput(${item.row}, 1, this.value)">
                 <span class="unit-label">ΤΜΧ</span>
               </div>
@@ -1374,8 +1384,8 @@ function buildItemRow(item) {
           ${slotLabel}
           <div class="item-input-wrap slot-input-wrap">
             <div class="input-group">
-              <input type="number" class="qty-input" data-row="${item.row}" data-slot="${slot}"
-                placeholder="0" value="${displayVal}" min="0" step="1" inputmode="numeric"
+              <input type="text" class="qty-input" data-row="${item.row}" data-slot="${slot}" aria-label="${h(ITEM_MAP[item.row].name)} — Θέση ${(slot) + 1}"
+                placeholder="0" value="${displayVal}" inputmode="numeric"
                 oninput="onSlotInput(${item.row}, ${slot}, this.value)">
               <span class="unit-label">${h(item.unit)}</span>
             </div>
@@ -1449,10 +1459,10 @@ function buildItemRow(item) {
             ${slotLabel}
             <div class="item-input-wrap slot-input-wrap">
               <div class="input-group">
-                <input type="number" class="qty-input${isTare ? ' gross-input' : ''}"
-                  data-row="${item.row}" data-slot="${slot}"
+                <input type="text" class="qty-input${isTare ? ' gross-input' : ''}"
+                  data-row="${item.row}" data-slot="${slot}" aria-label="${h(ITEM_MAP[item.row].name)} — Θέση ${(slot) + 1}"
                   placeholder="${isTare ? 'Μεικτό' : '0'}"
-                  value="${dispVal}" min="0" step="${step}" inputmode="${mode}"
+                  value="${dispVal}" inputmode="${mode}"
                   oninput="onSlotInput(${item.row}, ${slot}, this.value)">
                 <span class="unit-label">kg</span>
               </div>
@@ -1522,11 +1532,11 @@ function buildItemRow(item) {
         ${slotLabel}
         <div class="item-input-wrap slot-input-wrap">
           <div class="input-group">
-            <input type="number" class="qty-input${isTare ? ' gross-input' : ''}"
-              data-row="${item.row}" data-slot="${slot}"
+            <input type="text" class="qty-input${isTare ? ' gross-input' : ''}"
+              data-row="${item.row}" data-slot="${slot}" aria-label="${h(ITEM_MAP[item.row].name)} — Θέση ${(slot) + 1}"
               placeholder="${isTare ? 'Μεικτό' : '0'}"
               value="${dispVal}"
-              min="0" step="${step}" inputmode="${mode}"
+              inputmode="${mode}"
               oninput="onSlotInput(${item.row}, ${slot}, this.value)">
             <span class="unit-label">kg</span>
           </div>
@@ -1824,6 +1834,49 @@ function goBack() {
 // ==============================
 // ADMIN — PIN MODAL
 // ==============================
+function wirePinModal(modal, submit) {
+  const previousFocus = document.activeElement;
+  const digits = [...modal.querySelectorAll('.pin-digit')];
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  const heading = modal.querySelector('h2');
+  heading.id = modal.id + '-title';
+  modal.setAttribute('aria-labelledby', heading.id);
+  const close = () => { modal.remove(); if (previousFocus?.isConnected) previousFocus.focus(); };
+  const cancel = modal.querySelector('.btn-secondary');
+  cancel.onclick = close;
+  digits.forEach((digit, index) => {
+    digit.setAttribute('aria-label', `Ψηφίο ${index + 1} από 4`);
+    digit.addEventListener('input', () => {
+      digit.value = digit.value.replace(/\D/g, '').slice(-1);
+      if (digit.value && index < 3) digits[index + 1].focus();
+      if (digit.value && index === 3) submit();
+    });
+    digit.addEventListener('paste', event => {
+      const value = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 4 - index);
+      event.preventDefault();
+      if (!value) return;
+      for (let i = index; i < 4; i++) digits[i].value = value[i - index] || '';
+      digits[Math.min(index + value.length, 3)].focus();
+      if (digits.every(input => input.value)) submit();
+    });
+    digit.addEventListener('keydown', event => {
+      if (event.key === 'Backspace' && !digit.value && index > 0) digits[index - 1].focus();
+    });
+  });
+  modal.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); close(); }
+    if (event.key === 'Enter' && digits.includes(event.target)) { event.preventDefault(); submit(); }
+    if (event.key === 'Tab') {
+      const controls = [...modal.querySelectorAll('input, button')].filter(el => !el.disabled);
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+  });
+  digits[0].focus();
+}
+
 function openAdminPin() {
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
@@ -1843,18 +1896,7 @@ function openAdminPin() {
       </div>
     </div>`;
   document.body.appendChild(modal);
-  const digits = modal.querySelectorAll('.pin-digit');
-  digits.forEach((d, i) => {
-    d.addEventListener('input', () => {
-      d.value = d.value.replace(/\D/g,'').slice(-1);
-      if (d.value && i < 3) digits[i+1].focus();
-      if (d.value && i === 3) submitAdminPin();
-    });
-    d.addEventListener('keydown', e => {
-      if (e.key === 'Backspace' && !d.value && i > 0) { digits[i-1].focus(); }
-    });
-  });
-  digits[0].focus();
+  wirePinModal(modal, submitAdminPin);
 }
 
 async function submitAdminPin() {
@@ -2042,9 +2084,9 @@ function renderAdminScreen() {
                       <span class="item-code">${h(subLabel)}</span>
                     </div>
                     <div class="admin-input-wrap">
-                      <input type="number" class="admin-weight-input"
-                        data-row="${slotKey}" placeholder="-"
-                        value="${cwVal}" min="0" step="0.001" inputmode="decimal"
+                      <input type="text" class="admin-weight-input"
+                        data-row="${slotKey}" aria-label="${h(item.name)} — ${h(subLabel)} — Απόβαρο (kg)" placeholder="-"
+                        value="${cwVal}" inputmode="decimal"
                         oninput="onAdminWeightInput(this)">
                       <span class="unit-label">kg</span>
                     </div>
@@ -2065,9 +2107,9 @@ function renderAdminScreen() {
                     <span class="item-code">${h(label)}</span>
                   </div>
                   <div class="admin-input-wrap">
-                    <input type="number" class="admin-weight-input"
-                      data-row="${slotKey}" placeholder="-"
-                      value="${cwVal}" min="0" step="0.001" inputmode="decimal"
+                    <input type="text" class="admin-weight-input"
+                      data-row="${slotKey}" aria-label="${h(item.name)} — ${h(label)} — Απόβαρο (kg)" placeholder="-"
+                      value="${cwVal}" inputmode="decimal"
                       oninput="onAdminWeightInput(this)">
                     <span class="unit-label">kg</span>
                   </div>
@@ -2083,9 +2125,9 @@ function renderAdminScreen() {
                 ${item.code ? `<span class="item-code">${h(item.code)}</span>` : ''}
               </div>
               <div class="admin-input-wrap">
-                <input type="number" class="admin-weight-input"
-                  data-row="${item.row}" placeholder="-"
-                  value="${cwVal}" min="0" step="0.001" inputmode="decimal"
+                <input type="text" class="admin-weight-input"
+                  data-row="${item.row}" aria-label="${h(item.name)} — Απόβαρο (kg)" placeholder="-"
+                  value="${cwVal}" inputmode="decimal"
                   oninput="onAdminWeightInput(this)">
                 <span class="unit-label">kg</span>
               </div>
@@ -2242,16 +2284,7 @@ function openChangePinModal() {
       </div>
     </div>`;
   document.body.appendChild(modal);
-  const digits = modal.querySelectorAll('.new-pin-d');
-  digits.forEach((d, i) => {
-    d.addEventListener('input', () => {
-      d.value = d.value.replace(/\D/g,'').slice(-1);
-      if (d.value && i < 3) digits[i+1].focus();
-      if (d.value && i === 3) submitNewPin();
-    });
-    d.addEventListener('keydown', e => { if (e.key==='Backspace' && !d.value && i>0) digits[i-1].focus(); });
-  });
-  digits[0].focus();
+  wirePinModal(modal, submitNewPin);
 }
 
 async function submitNewPin() {
@@ -2348,12 +2381,9 @@ async function init() {
   else    { renderStoreScreen(); }
 }
 
-document.addEventListener('beforeinput', e => {
-  if (e.data !== ',') return;
+document.addEventListener('input', e => {
   const el = e.target;
-  if (el.tagName !== 'INPUT') return;
-  e.preventDefault();
-  document.execCommand('insertText', false, '.');
+  if (el && el.matches && el.matches('.qty-input, .admin-weight-input')) sanitizeNumericInput(el);
 }, true);
 
 initThemeFromStorage();

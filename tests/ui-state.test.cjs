@@ -87,3 +87,22 @@ test('new screen resets page scroll after rendering', () => {
   assert.equal(h.run('scroll.top'),0);
   assert.equal(h.run('scroll.behavior'),'instant');
 });
+test('a typed comma becomes a decimal point and stray characters are dropped', () => {
+  const h=harness();
+  const clean=value=>h.run(`sanitizeNumericInput({value:${JSON.stringify(value)},selectionStart:${value.length},setSelectionRange(){}})`);
+  assert.equal(clean('1,5'),'1.5');
+  assert.equal(clean('0,750'),'0.750');
+  assert.equal(clean('1,5,3'),'1.53');
+  assert.equal(clean('1.5.3'),'1.53');
+  assert.equal(clean('-2,4kg'),'2.4');
+  assert.equal(clean('1.5'),'1.5');
+  assert.equal(clean(''),'');
+});
+test('sanitizing rewrites the field and keeps the caret in place', () => {
+  const h=harness();
+  assert.equal(h.run(`let caret;
+    const field={value:'1,5x',selectionStart:4,setSelectionRange:pos=>caret=pos};
+    sanitizeNumericInput(field);
+    field.value`),'1.5');
+  assert.equal(h.run('caret'),3);
+});

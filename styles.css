@@ -242,7 +242,7 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
   padding: 11px 13px;
   border: 1px solid var(--line);
   border-radius: var(--r-control);
-  font-size: 15px;
+  font-size: 16px;
   outline: none;
   background: var(--field);
   color: var(--ink);
@@ -506,7 +506,7 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
   padding: 10px 0;
   border: none;
   background: none;
-  font-size: 15px;
+  font-size: 16px;
   outline: none;
   color: var(--ink);
   -webkit-appearance: none;
@@ -735,19 +735,16 @@ body.dark-mode .tab-btn.active .tab-badge { background: rgba(0, 0, 0, .22); }
   padding: 0 10px;
 }
 .qty-input {
-  width: 76px;
+  width: 78px;
   padding: 10px 0;
   border: none;
   background: transparent;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   text-align: right;
   outline: none;
   color: var(--ink);
-  -moz-appearance: textfield;
 }
-.qty-input::-webkit-outer-spin-button,
-.qty-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .qty-input::placeholder { color: var(--ink-3); font-weight: 400; font-family: var(--sans); }
 .unit-label {
   font-size: 11px;
@@ -962,27 +959,24 @@ body.dark-mode .tab-btn.active .tab-badge { background: rgba(0, 0, 0, .22); }
 .admin-card .admin-field-warn { padding: 0 14px 10px; }
 .admin-input-wrap { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .admin-weight-input, .store-code-input {
-  width: 86px;
+  width: 92px;
   padding: 9px 10px;
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   text-align: right;
   outline: none;
   background: var(--field);
   color: var(--ink);
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-  -moz-appearance: textfield;
 }
-.admin-weight-input::-webkit-outer-spin-button,
-.admin-weight-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .admin-weight-input::placeholder, .store-code-input::placeholder { color: var(--ink-3); }
 .admin-weight-input:focus, .store-code-input:focus {
   border-color: var(--brand-line);
   box-shadow: 0 0 0 3px var(--brand-wash);
 }
-.store-code-input { width: 74px; text-align: center; letter-spacing: .2em; }
+.store-code-input { width: 80px; text-align: center; letter-spacing: .2em; }
 
 .admin-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
 .admin-save-bar {
